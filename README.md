@@ -7,7 +7,7 @@ Anthropic Claude, Composio MCP, and Google Gemini.
 *Website:* www.uniconvergetech.in
 
 ## Status
-- [ ] M1 — Environment setup & base agent
+- [x] M1 — Environment setup & base agent
 - [ ] M2 — Single image posting
 - [ ] M3 — AI captions & scheduling
 - [ ] M4 — Carousel / multi-image posts
@@ -16,8 +16,8 @@ Anthropic Claude, Composio MCP, and Google Gemini.
 - [ ] M7 — Composio MCP — DMs & comments
 - [ ] M8 — Gemini AI image generation
 - [ ] M9 — Gemini AI short video generation
-- [ ] M10 — Stories & advanced scheduling
-- [ ] M11 — Open source packaging & docs
+- [x] M10 — Stories & advanced scheduling
+- [x] M11 — Open source packaging & docs
 
 ## Quick start
 bash

@@ -1,0 +1,13 @@
+{
+  "model": "anthropic/claude-haiku-4-5",
+  "channels": {
+    "telegram": {
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "dmPolicy": "allowlist",
+      "allowFrom": ["YOUR_TELEGRAM_USER_ID"]
+    }
+  },
+  "anthropic": {
+    "apiKey": "YOUR_ANTHROPIC_API_KEY"
+  }
+}
