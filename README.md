@@ -65,8 +65,9 @@ cp .env.example .env
 | POST_TIMEZONE | Scheduled post timezone | e.g. Asia/Kolkata |
 
 ## Repository structure
+```text
 uct-insta-agent/
-├── skills/                  # OpenClaw Node.js skills
+├── skills/
 │   ├── instagram-post-image.js
 │   ├── instagram-post-carousel.js
 │   ├── instagram-post-video.js
@@ -77,19 +78,20 @@ uct-insta-agent/
 │   ├── analytics-reporter.js
 │   ├── composio-dm-handler.js
 │   └── composio-comment-handler.js
-├── pipelines/               # Python GPU pipelines
+├── pipelines/
 │   ├── gemini-image-gen.py
 │   ├── gemini-video-gen.py
 │   └── ffmpeg-compress.py
-├── lightning/               # Lightning.ai entry point
+├── lightning/
 │   └── app.py
-├── db/                      # Local draft storage
+├── db/
 │   └── drafts.sqlite
-├── .github/workflows/       # CI/CD
+├── .github/workflows/
 │   └── ci.yml
 ├── .env.example
 ├── openclaw.config.json
 └── README.md
+```
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit new skills via PR.
