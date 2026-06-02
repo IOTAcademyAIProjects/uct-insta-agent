@@ -21,7 +21,7 @@ Anthropic Claude, Composio MCP, and Google Gemini.
 
 ## Quick start
 bash
-git clone https://github.com/uniconvergetech/uct-insta-agent
+git clone [https://github.com/uniconvergetech/uct-insta-agent](https://github.com/IOTAcademyAIProjects/uct-insta-agent)
 cd uct-insta-agent
 cp .env.example .env
 # fill in your API keys in .env
