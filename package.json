@@ -8,8 +8,8 @@
     "start": "openclaw gateway run"
   },
   "dependencies": {
-    "composio-core": "latest",
-    "dotenv": "latest",
-    "axios": "latest"
+    "axios": "latest",
+    "composio-core": "^0.5.39",
+    "dotenv": "latest"
   }
 }

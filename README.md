@@ -8,7 +8,7 @@ Anthropic Claude, Composio MCP, and Google Gemini.
 
 ## Status
 - [x] M1 — Environment setup & base agent
-- [ ] M2 — Single image posting
+- [x] M2 — Single image posting
 - [ ] M3 — AI captions & scheduling
 - [ ] M4 — Carousel / multi-image posts
 - [ ] M5 — Single video posting
