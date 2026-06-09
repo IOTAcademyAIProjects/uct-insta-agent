@@ -1,0 +1,7 @@
+{
+  "name": "UCT ClawGram Agent",
+  "description": "AI-powered Instagram management agent. I can post images to Instagram with AI-generated captions.",
+  "skills": [
+    "./skills/instagram-post-image.js"
+  ]
+}
