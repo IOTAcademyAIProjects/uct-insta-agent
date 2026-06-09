@@ -1,0 +1,15 @@
+{
+  "name": "uct-insta-agent",
+  "version": "1.0.0",
+  "description": "AI-powered Instagram management via Telegram",
+  "main": "index.js",
+  "scripts": {
+    "setup": "npm install -g openclaw && npm install",
+    "start": "openclaw gateway run"
+  },
+  "dependencies": {
+    "composio-core": "latest",
+    "dotenv": "latest",
+    "axios": "latest"
+  }
+}
