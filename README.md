@@ -11,17 +11,17 @@ AI-powered Instagram management via Telegram — built with OpenClaw, Anthropic 
 
 | # | Milestone | Status |
 |---|---|---|
-| M1 | Environment setup & base agent | ✅ Done |
-| M2 | Single image posting | ✅ Done |
-| M3 | AI captions & scheduling | ✅ Done |
-| M4 | Carousel / multi-image posts | ⏳ Pending |
-| M5 | Single video posting — full Telegram UX | ⏳ Pending |
-| M6 | Analytics dashboard (date range + content-type insights) | ✅ Done |
-| M7 | Composio MCP — DMs & comments | ⏳ Pending |
-| M8 | Gemini AI image generation | ⏳ Pending |
-| M9 | Gemini AI short video generation | ⏳ Pending |
-| M10 | Stories & advanced scheduling | ⏳ Pending |
-| M11 | Open source packaging & docs | ⏳ Pending |
+| M1 | Environment setup & base agent | Done |
+| M2 | Single image posting | Done |
+| M3 | AI captions & scheduling | Done |
+| M4 | Carousel / multi-image posts | Done |
+| M5 | Single video posting (URL-based) | Done |
+| M6 | Analytics dashboard (date range + content-type insights) | Done |
+| M7 | Composio MCP - DMs & comments | Pending |
+| M8 | Gemini AI image generation | Pending |
+| M9 | Gemini AI short video generation | Pending |
+| M10 | Stories & advanced scheduling | Pending |
+| M11 | Open source packaging & docs | Pending |
 
 ---
 
@@ -50,13 +50,13 @@ AI-powered Instagram management via Telegram — built with OpenClaw, Anthropic 
 | Technology | Purpose |
 |---|---|
 | OpenClaw | Agent runtime & Telegram bot framework |
-| Anthropic Claude | Reasoning, captions, hashtags, summaries |
+| Anthropic Claude | Reasoning, captions, hashtags, analytics summaries |
 | Composio MCP | Instagram publishing, DMs, comments, analytics |
 | Google Gemini | AI image & short video generation (M8/M9) |
-| imgbb | Free image hosting — public URLs for Instagram API |
+| imgbb | Free image hosting - public URLs for Instagram API |
 | Lightning.ai | 24GB GPU cloud studio for M8/M9 |
 | Node.js v18+ | OpenClaw runtime environment |
-| Python 3.11 | Image/video pipelines |
+| Python 3.11 | Image/video/analytics pipelines |
 | SQLite | Local draft post storage |
 
 ---
@@ -83,29 +83,33 @@ Copy .env.example to .env and fill in your keys.
 ## Repository Structure
 
     uct-insta-agent/
-    ├── skills/
-    │   ├── instagram-post-image.js    # Image posting skill
-    │   └── caption-generator.js       # Caption generation skill
-    ├── pipelines/
-    │   └── post-with-caption.py       # IMAGE + VIDEO posting pipeline
-    ├── lightning/
-    │   └── app.py                     # Lightning.ai entry point
-    ├── db/
-    │   └── drafts.sqlite              # Local draft storage
-    ├── info/
-    │   ├── openclawsetup.md           # OpenClaw setup guide
-    │   └── telegramsetup.md           # Telegram bot pairing guide
-    ├── openclaw-config/
-    │   └── openclaw.example.json      # Config reference
-    ├── .github/workflows/
-    │   └── ci.yml                     # GitHub Actions CI
-    ├── setup.sh                       # One-command session restore
-    ├── post-to-instagram.sh           # Shell bridge for OpenClaw skill
-    ├── test-m2.py                     # M2 image posting test
-    ├── test-imgbb.py                  # imgbb upload test
-    ├── .env.example                   # Environment variable template
-    ├── package.json                   # Node.js dependencies
-    └── README.md
+    |-- skills/
+    |   |-- instagram-post-image.js
+    |   |-- caption-generator.js
+    |-- pipelines/
+    |   |-- post-with-caption.py       # IMAGE + VIDEO posting pipeline
+    |   |-- post-carousel.py           # Multi-image carousel pipeline
+    |   |-- get-analytics.py           # Analytics + content-type insights
+    |-- lightning/
+    |   |-- app.py
+    |-- db/
+    |   |-- drafts.sqlite
+    |-- info/
+    |   |-- openclawsetup.md
+    |   |-- telegramsetup.md
+    |-- openclaw-config/
+    |   |-- openclaw.example.json
+    |-- .github/workflows/
+    |   |-- ci.yml
+    |-- setup.sh                       # One-command session restore
+    |-- post-to-instagram.sh           # Shell bridge - image/video posting
+    |-- post-carousel.sh               # Shell bridge - carousel posting
+    |-- post-analytics.sh              # Shell bridge - analytics
+    |-- test-m2.py
+    |-- test-imgbb.py
+    |-- .env.example
+    |-- package.json
+    |-- README.md
 
 ---
 
@@ -134,48 +138,43 @@ Copy .env.example to .env and fill in your keys.
     Shell script triggers Python pipeline
                |
                v
-    Claude generates caption + hashtags
+    Pipeline calls Composio (post / fetch insights)
                |
                v
-    imgbb hosts the image (public URL)
+    Claude generates caption or summary
                |
                v
-    Composio posts to Instagram via Meta API
-               |
-               v
-    Bot confirms with Post ID on Telegram
+    Bot replies on Telegram
 
 ---
 
-## Milestone Clarification — M3 Pipeline Update vs M5
+## Milestone Highlights
 
-### What was completed in M3 pipeline update (June 2026)
+### M4 - Carousel Posts
+Collects 2-10 images, uploads each to imgbb, creates individual carousel
+child containers via Composio, then publishes them as one swipeable post
+with a single unified Claude-generated caption.
 
-The post-with-caption.py pipeline was extended with video support:
+### M5 - Video Posting
+post-with-caption.py auto-detects IMAGE vs VIDEO from HTTP content-type
+headers and posts accordingly (photo vs reel). URL-based video posting is
+confirmed working end-to-end from Telegram. Direct phone file upload is
+deferred due to a known OpenClaw 2026.5.7 media pipeline limitation
+(tracked upstream as issue #18577) - users currently provide a public
+video URL rather than attaching a file directly.
 
-- Auto-detects IMAGE vs VIDEO from HTTP content-type headers
-- Video URLs are posted as Instagram Reels via Composio
-- Image URLs are uploaded to imgbb then posted as photos
-- AI caption generation via Claude works for both image and video
-- content_type field correctly set — reel for video, photo for image
+### M6 - Analytics Dashboard
+get-analytics.py supports three modes: default last 7 days, a custom
+number of days, or a fully custom date range (start and end date). It
+ranks performance by content type (image vs video vs carousel) using
+average reach and engagement, then asks Claude to produce a plain-English
+summary with a concrete content recommendation - for example, identifying
+that video content is outperforming images and should be prioritized.
 
-NOTE: This is a pipeline-level capability update, NOT the full M5 milestone.
-Credit: Video architecture contributed by Manish, integrated with Claude by Abhishek.
-
-### What M5 will deliver (pending)
-
-M5 is the full Telegram-to-Instagram video UX milestone:
-
-- User sends an MP4 file directly via Telegram to @uct_clawgram_bot
-- Bot handles Telegram file size limits (20MB max via Bot API)
-- Large file chunking for videos above the Telegram limit
-- User chooses Reel or Feed video before posting
-- Claude generates video caption and cover thumbnail suggestion
-- Account capability check before submission
-- Confirmation with Instagram post URL and estimated reach
-- Proper error handling for unsupported video formats and durations
-
-NOTE: M5 is still pending and has not been started.
+This module's research and methodology - including the content-type
+performance ranking approach and date-range handling design - was
+researched and contributed by Raja, who worked closely with Abhishek to
+get the analytics pipeline production-ready.
 
 ---
 
@@ -183,9 +182,10 @@ NOTE: M5 is still pending and has not been started.
 
 | Name | Role | Contribution |
 |---|---|---|
-| Abhishek Kumar Shukla | Senior AI Developer | Project lead, Lightning.ai environment, M1 OpenClaw setup, M2 Composio integration, M3 Claude caption pipeline, Telegram bot wiring, overall architecture |
+| Abhishek Kumar Shukla | Senior AI Developer | Project lead, Lightning.ai environment, M1 OpenClaw setup, M2 Composio integration, M3 Claude caption pipeline, M4 carousel posting, M5 video posting, M6 analytics implementation, Telegram bot wiring, overall architecture |
 | Drupad Das | AI Developer | Co-developer, Windows local environment, milestone collaboration, code review |
-| Manish | AI Developer | Video support architecture — auto content-type detection (IMAGE vs VIDEO), video URL handling, content_type field (reel/photo) integrated into post-with-caption.py |
+| Manish | AI Developer | Contributed video support architecture - auto content-type detection (IMAGE vs VIDEO), video URL handling, content_type field (reel/photo) - integrated into post-with-caption.py for M5 |
+| Raja | AI Developer | Researched and assisted with the M6 Analytics module - content-type performance ranking methodology and date-range handling design, working closely with Abhishek on implementation |
 
 ---
 
@@ -204,15 +204,15 @@ Every new Lightning.ai session requires:
 
 ## Security Notes
 
-- Never commit .env — it is in .gitignore
+- Never commit .env - it is in .gitignore
 - Rotate all tokens before M11 public release
-- Bot DM policy is set to allowlist — only approved Telegram IDs can interact
+- Bot DM policy is set to allowlist - only approved Telegram IDs can interact
 - Run openclaw security audit regularly
 
 ---
 
 ## License
 
-MIT — free to clone, modify, and self-host.
+MIT - free to clone, modify, and self-host.
 
-© 2025 Uniconverge Technologies Pvt. Ltd.
+(c) 2025 Uniconverge Technologies Pvt. Ltd.
