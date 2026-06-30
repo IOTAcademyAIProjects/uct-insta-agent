@@ -16,7 +16,7 @@ AI-powered Instagram management via Telegram — built with OpenClaw, Anthropic 
 | M3 | AI captions & scheduling | ✅ Done |
 | M4 | Carousel / multi-image posts | ⏳ Pending |
 | M5 | Single video posting — full Telegram UX | ⏳ Pending |
-| M6 | Analytics dashboard | ⏳ Pending |
+| M6 | Analytics dashboard (date range + content-type insights) | ✅ Done |
 | M7 | Composio MCP — DMs & comments | ⏳ Pending |
 | M8 | Gemini AI image generation | ⏳ Pending |
 | M9 | Gemini AI short video generation | ⏳ Pending |
