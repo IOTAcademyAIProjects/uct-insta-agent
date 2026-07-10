@@ -8,7 +8,8 @@ Usage: python3 post-carousel.py "url1,url2,url3" "tone"
 import os
 import sys
 import requests
-import anthropic
+import sys
+sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -171,7 +172,7 @@ def main():
 
         # Generate caption
         print("Generating caption with Claude...")
-        caption = generate_caption(len(image_urls), tone)
+        caption = generate_carousel_caption(len(image_urls), tone)
         print(f"\nGenerated Caption:\n{caption}\n")
 
         # Post carousel

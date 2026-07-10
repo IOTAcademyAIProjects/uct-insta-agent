@@ -50,7 +50,7 @@ AI-powered Instagram management via Telegram — built with OpenClaw, Anthropic 
 | Technology | Purpose |
 |---|---|
 | OpenClaw | Agent runtime & Telegram bot framework |
-| Anthropic Claude | Reasoning, captions, hashtags, analytics summaries |
+| Multi-AI Router | Captions, summaries — rotates across NVIDIA, Cerebras, Mistral (free) |
 | Composio MCP | Instagram publishing, DMs, comments, analytics |
 | Google Gemini | AI image & short video generation (M8/M9) |
 | imgbb | Free image hosting - public URLs for Instagram API |

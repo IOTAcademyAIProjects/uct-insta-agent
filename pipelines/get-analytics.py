@@ -13,9 +13,11 @@ Usage:
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-import anthropic
+import sys
+sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
+from pipelines.ai_router import generate_analytics_summary
 from composio import Composio
 
 
@@ -123,7 +125,7 @@ def analyze_by_content_type(posts_with_insights):
     return ranked
 
 
-def summarize_with_claude(posts_with_insights, content_type_ranking, date_range_label):
+def summarize_with_ai(posts_with_insights, content_type_ranking, date_range_label):
     client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
     data_text = ""
