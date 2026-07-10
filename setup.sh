@@ -40,3 +40,4 @@ EOF
 echo "Done! Now:"
 echo "1. Fill in your .env file"
 echo "2. Run: openclaw gateway run"
+python3 /teamspace/studios/this_studio/uct-insta-agent/db/setup_db.py

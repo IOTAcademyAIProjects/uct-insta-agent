@@ -234,3 +234,121 @@ if __name__ == '__main__':
             except Exception as e:
                 print(f"{provider['name']}: FAILED — {str(e)[:60]}")
             print()
+
+
+# ----------------------------------------------------------------
+# DATABASE LOGGING
+# ----------------------------------------------------------------
+
+DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
+
+def log_ai_call(provider, model, prompt_type, success):
+    """Log every AI call to the database"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            'INSERT INTO ai_calls (provider, model, prompt_type, success) VALUES (?, ?, ?, ?)',
+            (provider, model, prompt_type, 1 if success else 0)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        pass  # Never block on logging failure
+
+
+def log_post(post_id, caption, media_type, tone, image_url, provider):
+    """Log every successful Instagram post to the database"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            '''INSERT OR IGNORE INTO posts
+               (post_id, caption, media_type, tone, image_url, provider)
+               VALUES (?, ?, ?, ?, ?, ?)''',
+            (post_id, caption, media_type, tone, image_url, provider)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        pass
+
+
+def save_draft(image_url, caption, tone, media_type):
+    """Save a draft to the database — returns draft ID"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.execute(
+            '''INSERT INTO drafts (image_url, caption, tone, media_type, status)
+               VALUES (?, ?, ?, ?, "PENDING")''',
+            (image_url, caption, tone, media_type)
+        )
+        draft_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return draft_id
+    except Exception as e:
+        return None
+
+
+def delete_draft(draft_id):
+    """Delete a draft by ID"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('DELETE FROM drafts WHERE id = ?', (draft_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def get_storage_stats():
+    """Return database storage statistics"""
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    stats = {}
+    for table in ['posts', 'drafts', 'analytics_cache', 'ai_calls']:
+        count = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+        stats[table] = count
+    conn.close()
+
+    # DB file size
+    size_bytes = os.path.getsize(DB_PATH)
+    size_kb = round(size_bytes / 1024, 2)
+
+    return {
+        'size_kb': size_kb,
+        'posts': stats['posts'],
+        'drafts': stats['drafts'],
+        'analytics_cache': stats['analytics_cache'],
+        'ai_calls': stats['ai_calls']
+    }
+
+
+def get_post_history(limit=10):
+    """Return last N posts from history"""
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        '''SELECT id, post_id, caption, media_type, provider, timestamp
+           FROM posts ORDER BY timestamp DESC LIMIT ?''',
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_pending_drafts():
+    """Return all pending drafts"""
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        '''SELECT id, image_url, caption, tone, media_type, created_at
+           FROM drafts WHERE status = "PENDING"
+           ORDER BY created_at DESC'''
+    ).fetchall()
+    conn.close()
+    return rows
