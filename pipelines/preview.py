@@ -16,6 +16,7 @@ sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
 from dotenv import load_dotenv
 load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
 from pipelines.ai_router import generate_caption, log_post
+from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
 
@@ -85,13 +86,11 @@ def approve_draft(draft_id):
     image_url, caption, tone, media_type = row
 
     # Post to Instagram
-    from composio import Composio
-    client = Composio(api_key=os.getenv('COMPOSIO_API_KEY'))
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)['items']
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
+    try:
+        client, user_id, connected_account_id, ig_user_id = get_instagram_client()
+    except NoActiveInstagramConnection as e:
+        print(f"FAILED: {e}")
+        return
 
     step1 = client.tools.execute(
         slug='INSTAGRAM_CREATE_MEDIA_CONTAINER',

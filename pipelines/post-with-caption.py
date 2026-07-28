@@ -14,6 +14,7 @@ load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
 # Import AI router instead of Claude
 sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
 from pipelines.ai_router import generate_caption
+from pipelines.ig_connection import get_instagram_client
 
 def upload_to_imgbb(image_url):
     img_data = requests.get(image_url).content
@@ -28,13 +29,7 @@ def upload_to_imgbb(image_url):
     raise Exception(f"imgbb upload failed: {result}")
 
 def post_to_instagram(url, caption, Type):
-    from composio import Composio
-    client = Composio(api_key=os.getenv('COMPOSIO_API_KEY'))
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)['items']
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
+    client, user_id, connected_account_id, ig_user_id = get_instagram_client()
 
     step1 = client.tools.execute(
         slug='INSTAGRAM_CREATE_MEDIA_CONTAINER',

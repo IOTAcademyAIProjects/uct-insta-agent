@@ -17,19 +17,13 @@ import sqlite3
 sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
-from composio import Composio
 from pipelines.ai_router import generate_text
+from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
 
 def get_client():
-    client = Composio(api_key=os.getenv("COMPOSIO_API_KEY"))
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)["items"]
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv("INSTAGRAM_USER_ID")
-    return client, user_id, connected_account_id, ig_user_id
+    return get_instagram_client()
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -197,30 +191,34 @@ def generate_activity_summary():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "dms"
-    if cmd == "dms":
-        get_dms()
-    elif cmd == "notify":
-        get_dms(notify=True)
-    elif cmd == "conversation":
-        conv_id = sys.argv[2] if len(sys.argv) > 2 else None
-        if conv_id:
-            get_conversation(conv_id)
+    try:
+        if cmd == "dms":
+            get_dms()
+        elif cmd == "notify":
+            get_dms(notify=True)
+        elif cmd == "conversation":
+            conv_id = sys.argv[2] if len(sys.argv) > 2 else None
+            if conv_id:
+                get_conversation(conv_id)
+            else:
+                print("Usage: dm-comments.py conversation [id]")
+        elif cmd == "comments":
+            post_id = sys.argv[2] if len(sys.argv) > 2 else None
+            if post_id:
+                get_comments(post_id)
+            else:
+                get_all_post_comments()
+        elif cmd == "delete":
+            comment_id = sys.argv[2] if len(sys.argv) > 2 else None
+            if comment_id:
+                delete_comment(comment_id)
+            else:
+                print("Usage: dm-comments.py delete [comment_id]")
+        elif cmd == "summary":
+            generate_activity_summary()
         else:
-            print("Usage: dm-comments.py conversation [id]")
-    elif cmd == "comments":
-        post_id = sys.argv[2] if len(sys.argv) > 2 else None
-        if post_id:
-            get_comments(post_id)
-        else:
-            get_all_post_comments()
-    elif cmd == "delete":
-        comment_id = sys.argv[2] if len(sys.argv) > 2 else None
-        if comment_id:
-            delete_comment(comment_id)
-        else:
-            print("Usage: dm-comments.py delete [comment_id]")
-    elif cmd == "summary":
-        generate_activity_summary()
-    else:
-        print(f"Unknown: {cmd}")
-        print("Commands: dms, notify, conversation [id], comments [post_id], delete [comment_id], summary")
+            print(f"Unknown: {cmd}")
+            print("Commands: dms, notify, conversation [id], comments [post_id], delete [comment_id], summary")
+    except NoActiveInstagramConnection as e:
+        print(f"FAILED: {e}")
+        sys.exit(1)

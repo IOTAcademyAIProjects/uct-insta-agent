@@ -18,20 +18,11 @@ sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
 from pipelines.ai_router import generate_analytics_summary
-from composio import Composio
+from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 
 def get_composio_client():
-    api_key = os.getenv('COMPOSIO_API_KEY')
-    client = Composio(api_key=api_key)
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)['items']
-    if not items:
-        raise ValueError("No Instagram account connected in Composio")
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
-    return client, user_id, connected_account_id, ig_user_id
+    return get_instagram_client()
 
 
 def get_recent_posts(client, user_id, connected_account_id, ig_user_id, limit=50):
