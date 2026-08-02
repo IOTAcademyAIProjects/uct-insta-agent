@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
+from composio import Composio
 from pipelines.ai_router import generate_caption
-from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
 
@@ -51,7 +51,13 @@ def setup_scheduler_table():
 #----------------------------------------------------------------
 
 def get_client():
-    return get_instagram_client()
+    client = Composio(api_key=os.getenv("COMPOSIO_API_KEY"))
+    accounts = client.connected_accounts.list()
+    items = dict(accounts)["items"]
+    user_id = items[0].user_id
+    connected_account_id = items[0].id
+    ig_user_id = os.getenv("INSTAGRAM_USER_ID")
+    return client, user_id, connected_account_id, ig_user_id
 
 #----------------------------------------------------------------
 # IMGBB UPLOAD

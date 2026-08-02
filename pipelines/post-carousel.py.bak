@@ -67,9 +67,19 @@ def upload_to_imgbb(image_url):
 
 def post_carousel(image_urls, caption):
     """Create carousel children, then carousel container, then publish"""
-    from pipelines.ig_connection import get_instagram_client
+    from composio import Composio
 
-    client, user_id, connected_account_id, ig_user_id = get_instagram_client()
+    api_key = os.getenv('COMPOSIO_API_KEY')
+    client = Composio(api_key=api_key)
+    accounts = client.connected_accounts.list()
+    items = dict(accounts)['items']
+
+    if not items:
+        raise ValueError("No Instagram account connected in Composio")
+
+    user_id = items[0].user_id
+    connected_account_id = items[0].id
+    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
 
     if len(image_urls) < 2 or len(image_urls) > 10:
         raise ValueError("Carousel requires between 2 and 10 images")
