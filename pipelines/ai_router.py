@@ -352,3 +352,61 @@ def get_pending_drafts():
     ).fetchall()
     conn.close()
     return rows
+
+
+# ----------------------------------------------------------------
+# VISION — image description (OpenRouter, separate from the
+# NVIDIA/Cerebras/Mistral text rotation above)
+# ----------------------------------------------------------------
+
+OPENROUTER_VISION_MODEL = os.getenv(
+    'OPENROUTER_VISION_MODEL',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+)
+
+
+def describe_image(image_url, prompt=None):
+    """
+    Get a real description of an image's content via the free OpenRouter
+    vision model. Used so captions are generated from what's actually in
+    the photo instead of the image URL or filename.
+
+    Returns the description string, or None if the call fails (caller
+    should fall back to a generic prompt rather than crash — vision
+    being temporarily unavailable shouldn't block posting entirely).
+    """
+    api_key = os.getenv('OPENROUTER_API_KEY')
+    if not api_key:
+        print("[Vision] OPENROUTER_API_KEY not set, skipping image description")
+        return None
+
+    if prompt is None:
+        prompt = (
+            "Describe this image in 2-3 sentences, focused on concrete "
+            "details a caption writer would need: what it shows, any "
+            "visible text/logos/brands, setting, and notable objects or "
+            "people. Be specific and factual, not poetic."
+        )
+
+    try:
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        completion = client.chat.completions.create(
+            model=OPENROUTER_VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }],
+            max_tokens=300,
+        )
+        description = completion.choices[0].message.content.strip()
+        print(f"[Vision] Described image via {OPENROUTER_VISION_MODEL}")
+        return description
+    except Exception as e:
+        print(f"[Vision] Description failed ({e}), falling back to generic caption")
+        return None

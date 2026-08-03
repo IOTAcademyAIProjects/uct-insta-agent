@@ -2,7 +2,9 @@
 """
 Preview Pipeline — Generate caption and save as draft before posting
 Usage:
-  python3 pipelines/preview.py create [url] [tone]     — create a draft
+  python3 pipelines/preview.py create [url] [tone] [description]  — create a draft
+                                       description is optional; if omitted,
+                                       the image is described via vision
   python3 pipelines/preview.py approve [draft_id]      — post the draft
   python3 pipelines/preview.py reject [draft_id]       — delete the draft
   python3 pipelines/preview.py update [draft_id] [new_caption] — update caption
@@ -15,7 +17,7 @@ import sqlite3
 sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
 from dotenv import load_dotenv
 load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
-from pipelines.ai_router import generate_caption, log_post
+from pipelines.ai_router import generate_caption, log_post, describe_image
 from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
@@ -24,7 +26,7 @@ DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
 # DRAFT MANAGEMENT
 #----------------------------------------------------------------
 
-def create_draft(image_url, tone='casual'):
+def create_draft(image_url, tone='casual', description=None):
     """Download image, generate caption, save as PENDING draft"""
 
     # Detect media type
@@ -49,7 +51,15 @@ def create_draft(image_url, tone='casual'):
 
     # Generate caption
     print("Generating caption with AI Router...")
-    caption = generate_caption(hosted_url, tone, media_type)
+    if description:
+        print(f"Using provided description: {description}")
+    elif media_type == "IMAGE":
+        print("Describing image with vision...")
+        description = describe_image(hosted_url) or "an interesting photo"
+    else:
+        # Vision model here is image-only; video falls back to generic
+        description = "an engaging video"
+    caption = generate_caption(description, tone, media_type)
     print(f"Caption generated.")
 
     # Save draft to DB
@@ -92,15 +102,22 @@ def approve_draft(draft_id):
         print(f"FAILED: {e}")
         return
 
+    # Composio's INSTAGRAM_CREATE_MEDIA_CONTAINER schema: for plain image
+    # posts, media_type must be OMITTED entirely (image is the default).
+    # Sending media_type: "IMAGE" is invalid and gets rejected. Only VIDEO
+    # posts need media_type explicitly set to "REELS".
+    container_args = {
+        ("image_url" if media_type == "IMAGE" else "video_url"): image_url,
+        "caption": caption,
+        "content_type": "reel" if media_type == "VIDEO" else "photo",
+        "ig_user_id": ig_user_id
+    }
+    if media_type == "VIDEO":
+        container_args["media_type"] = "REELS"
+
     step1 = client.tools.execute(
         slug='INSTAGRAM_CREATE_MEDIA_CONTAINER',
-        arguments={
-            ("image_url" if media_type == "IMAGE" else "video_url"): image_url,
-            "caption": caption,
-            "media_type": media_type,
-            "content_type": "reel" if media_type == "VIDEO" else "photo",
-            "ig_user_id": ig_user_id
-        },
+        arguments=container_args,
         connected_account_id=connected_account_id,
         user_id=user_id,
         dangerously_skip_version_check=True
@@ -186,10 +203,11 @@ if __name__ == '__main__':
     if command == 'create':
         url = sys.argv[2] if len(sys.argv) > 2 else None
         tone = sys.argv[3] if len(sys.argv) > 3 else 'casual'
+        description = sys.argv[4] if len(sys.argv) > 4 else None
         if not url:
             print("FAILED: URL required")
             sys.exit(1)
-        create_draft(url, tone)
+        create_draft(url, tone, description)
 
     elif command == 'approve':
         draft_id = int(sys.argv[2]) if len(sys.argv) > 2 else None

@@ -12,7 +12,7 @@ import base64
 sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
-from pipelines.ai_router import generate_text
+from pipelines.ai_router import generate_text, describe_image
 
 DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
 
@@ -41,14 +41,13 @@ def detect_media_type(file_path):
         return "VIDEO"
     return "IMAGE"
 
-def generate_caption_for_file(file_path, tone="casual"):
-    """Generate caption based on file description"""
-    media_type = detect_media_type(file_path)
-    filename = os.path.basename(file_path)
+def generate_caption_for_file(media_type, tone="casual", description=None):
+    """Generate caption based on real image content (via vision) or a
+    user-provided description — not just the filename, which carries no
+    information about what's actually in the file."""
 
-    prompt = f"""Generate an Instagram caption for a {media_type.lower()} shared from a mobile device.
+    prompt = f"""Generate an Instagram caption for this {media_type.lower()}: "{description}"
 Tone: {tone}
-File: {filename}
 
 Requirements:
 1. 2-3 sentences, engaging and authentic
@@ -74,11 +73,14 @@ def save_draft(image_url, caption, tone, media_type):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: file_upload_handler.py [file_path] [tone]")
+        print("Usage: file_upload_handler.py [file_path] [tone] [description]")
+        print("  DESCRIPTION is optional — if omitted, the image is described")
+        print("  automatically via vision before the caption is written.")
         sys.exit(1)
 
     file_path = sys.argv[1]
     tone = sys.argv[2] if len(sys.argv) > 2 else "casual"
+    user_description = sys.argv[3] if len(sys.argv) > 3 else None
 
     if not os.path.exists(file_path):
         print(f"FAILED: File not found: {file_path}")
@@ -90,12 +92,22 @@ def main():
     media_type = detect_media_type(file_path)
     print(f"Media type: {media_type}")
 
-    # Upload to imgbb
+    # Upload to imgbb FIRST — vision needs a public URL to look at,
+    # so this must happen before caption generation, not after.
     image_url = upload_file_to_imgbb(file_path)
 
     # Generate caption
     print("Generating caption...")
-    caption = generate_caption_for_file(file_path, tone)
+    if user_description:
+        description = user_description
+        print(f"Using provided description: {description}")
+    elif media_type == "IMAGE":
+        print("Describing image with vision...")
+        description = describe_image(image_url) or "an interesting photo"
+    else:
+        # Vision model here is image-only; video falls back to generic
+        description = "an engaging video"
+    caption = generate_caption_for_file(media_type, tone, description)
     print(f"Caption generated.")
 
     # Save as draft
