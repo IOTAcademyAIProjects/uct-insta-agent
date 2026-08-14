@@ -11,12 +11,13 @@ Usage:
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 from datetime import datetime, timedelta, timezone
 import sys
-sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
+sys.path.insert(0, PROJECT_ROOT)
 from dotenv import load_dotenv
-load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 from pipelines.ai_router import generate_analytics_summary
 from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 

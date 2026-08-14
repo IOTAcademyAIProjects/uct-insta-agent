@@ -7,14 +7,17 @@ Commands: storage, history, drafts, delete [id], clear_drafts, clear_history
 
 import sys
 import os
-sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 from pipelines.ai_router import (
     get_storage_stats, get_post_history,
     get_pending_drafts, delete_draft
 )
 import sqlite3
 
-DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
+DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
 
 def cmd_storage():
     stats = get_storage_stats()

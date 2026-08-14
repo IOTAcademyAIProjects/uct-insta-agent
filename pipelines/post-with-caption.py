@@ -6,13 +6,14 @@ Usage: python3 post-with-caption.py [URL] [TONE]
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import requests
 from dotenv import load_dotenv
-load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 
 # Import AI router instead of Claude
-sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
+sys.path.insert(0, PROJECT_ROOT)
 from pipelines.ai_router import generate_caption, describe_image
 from pipelines.ig_connection import get_instagram_client
 

@@ -6,12 +6,13 @@ Usage: from pipelines.ai_router import generate_text
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import json
 import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 
 # ----------------------------------------------------------------
 # PROVIDER CONFIG
@@ -240,7 +241,7 @@ if __name__ == '__main__':
 # DATABASE LOGGING
 # ----------------------------------------------------------------
 
-DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
+DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
 
 def log_ai_call(provider, model, prompt_type, success):
     """Log every AI call to the database"""

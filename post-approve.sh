@@ -1,3 +1,4 @@
 #!/bin/bash
-cd /teamspace/studios/this_studio/uct-insta-agent
-/home/zeus/miniconda3/envs/cloudspace/bin/python3 pipelines/preview.py approve "$1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+python3 pipelines/preview.py approve "$1"
