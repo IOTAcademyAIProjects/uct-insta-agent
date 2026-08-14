@@ -10,18 +10,20 @@ Usage:
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import time
 import sqlite3
 import requests
 from datetime import datetime, timezone
-sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
+from zoneinfo import ZoneInfo
+sys.path.insert(0, PROJECT_ROOT)
 from dotenv import load_dotenv
-load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
-from pipelines.ai_router import generate_caption
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+from pipelines.ai_router import generate_caption, describe_image
 from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
-DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
+DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
 
 #----------------------------------------------------------------
 # DB SETUP
@@ -118,7 +120,7 @@ def post_story(image_url):
 # SCHEDULING
 #----------------------------------------------------------------
 
-def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAGE", post_type="FEED"):
+def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAGE", post_type="FEED", description=None):
     setup_scheduler_table()
 
     # Upload image now to get permanent URL
@@ -128,10 +130,22 @@ def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAG
 
     # Generate caption now
     print("Generating caption with AI Router...")
-    caption = generate_caption(hosted_url, tone, media_type)
+    if description:
+        print(f"Using provided description: {description}")
+    elif media_type == "IMAGE":
+        print("Describing image with vision...")
+        description = describe_image(hosted_url) or "an interesting photo"
+    else:
+        # Vision model here is image-only; video falls back to generic
+        description = "an engaging video"
+    caption = generate_caption(description, tone, media_type)
     print(f"Caption generated.")
 
-    # Parse scheduled time
+    # Parse scheduled time — interpreted in POST_TIMEZONE (the tone the
+    # user is actually thinking in), then stored as UTC so run_scheduler()
+    # can compare against real UTC time regardless of the server's local
+    # system timezone.
+    post_tz = ZoneInfo(os.getenv("POST_TIMEZONE", "UTC"))
     try:
         scheduled_dt = datetime.strptime(scheduled_time_str, "%Y-%m-%d %H:%M")
     except ValueError:
@@ -140,6 +154,8 @@ def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAG
             scheduled_dt = scheduled_dt.replace(hour=9, minute=0)
         except ValueError:
             raise Exception(f"Invalid date format. Use: YYYY-MM-DD HH:MM or YYYY-MM-DD")
+    scheduled_dt = scheduled_dt.replace(tzinfo=post_tz)
+    scheduled_dt_utc = scheduled_dt.astimezone(timezone.utc)
 
     # Save to DB
     conn = sqlite3.connect(DB_PATH)
@@ -147,7 +163,7 @@ def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAG
         """INSERT INTO scheduled_posts
            (image_url, caption, tone, media_type, post_type, scheduled_time, status)
            VALUES (?, ?, ?, ?, ?, ?, "PENDING")""",
-        (hosted_url, caption, tone, media_type, post_type, scheduled_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        (hosted_url, caption, tone, media_type, post_type, scheduled_dt_utc.strftime("%Y-%m-%d %H:%M:%S"))
     )
     schedule_id = cursor.lastrowid
     conn.commit()
@@ -177,12 +193,20 @@ def list_scheduled():
         print("No scheduled posts.")
         return
 
+    post_tz = ZoneInfo(os.getenv("POST_TIMEZONE", "UTC"))
     print(f"Scheduled posts ({len(rows)} total):\n")
     for row in rows:
         id_, stime, ptype, mtype, tone, status, caption = row
         caption_preview = (caption or "")[:60] + "..." if len(caption or "") > 60 else caption
         emoji = "✅" if status == "POSTED" else "⏳" if status == "PENDING" else "❌"
-        print(f"[{id_}] {emoji} {stime} | {ptype} | {mtype} | {tone}")
+        # stime is stored as UTC; show it in POST_TIMEZONE so it matches
+        # what the user actually typed when scheduling.
+        try:
+            local_time = datetime.strptime(stime, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone(post_tz)
+            stime_display = local_time.strftime("%Y-%m-%d %H:%M %Z")
+        except ValueError:
+            stime_display = stime  # fall back to raw value if parsing fails
+        print(f"[{id_}] {emoji} {stime_display} | {ptype} | {mtype} | {tone}")
         print(f"     {caption_preview}")
         print()
 
@@ -208,20 +232,22 @@ def cancel_scheduled(post_id):
 def publish_post(image_url, caption, media_type, post_type):
     client, user_id, connected_account_id, ig_user_id = get_client()
 
+    # Composio's INSTAGRAM_CREATE_MEDIA_CONTAINER schema: for plain image
+    # feed posts, media_type must be OMITTED entirely (image is the
+    # default). Sending media_type: "IMAGE" is invalid and gets rejected.
+    # STORIES is a legitimate explicit value and stays as-is.
+    container_args = {
+        "image_url": image_url,
+        "caption": caption if post_type != "STORY" else None,
+        "content_type": "photo",
+        "ig_user_id": ig_user_id
+    }
     if post_type == "STORY":
-        container_type = "STORIES"
-    else:
-        container_type = media_type
+        container_args["media_type"] = "STORIES"
 
     step1 = client.tools.execute(
         slug="INSTAGRAM_CREATE_MEDIA_CONTAINER",
-        arguments={
-            "image_url": image_url,
-            "caption": caption if post_type != "STORY" else None,
-            "media_type": container_type,
-            "content_type": "photo",
-            "ig_user_id": ig_user_id
-        },
+        arguments=container_args,
         connected_account_id=connected_account_id,
         user_id=user_id,
         dangerously_skip_version_check=True
@@ -245,7 +271,11 @@ def publish_post(image_url, caption, media_type, post_type):
 
 def run_scheduler():
     setup_scheduler_table()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # scheduled_time is stored as UTC (see schedule_post above), so compare
+    # against real UTC time — not the server's local system clock, which
+    # may not match POST_TIMEZONE and would cause posts to fire at the
+    # wrong wall-clock time.
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     conn = sqlite3.connect(DB_PATH)
     due_posts = conn.execute(
@@ -278,16 +308,19 @@ def run_scheduler():
 
             print(f"SUCCESS! Post ID: {post_id}")
 
-            # Send Telegram notification
+            # Send Telegram notification (only if a notify chat ID is configured)
             token = os.getenv("TELEGRAM_BOT_TOKEN")
-            chat_id = "8909720609"
-            requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": f"Scheduled post published!\nPost ID: {post_id}\nCheck: https://instagram.com/iot_academy_projects"
-                }
-            )
+            chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+            if chat_id:
+                requests.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": f"Scheduled post published!\nPost ID: {post_id}\nCheck: https://instagram.com/iot_academy_projects"
+                    }
+                )
+            else:
+                print("[WARNING] TELEGRAM_NOTIFY_CHAT_ID not set in .env — skipping notification")
 
         except Exception as e:
             print(f"FAILED post {post_id_db}: {e}")
@@ -315,12 +348,13 @@ if __name__ == "__main__":
 
     elif cmd == "schedule":
         if len(sys.argv) < 4:
-            print("Usage: scheduler.py schedule [url] [YYYY-MM-DD HH:MM] [tone]")
+            print("Usage: scheduler.py schedule [url] [YYYY-MM-DD HH:MM] [tone] [description]")
         else:
             url = sys.argv[2]
             scheduled_time = sys.argv[3]
             tone = sys.argv[4] if len(sys.argv) > 4 else "casual"
-            schedule_post(url, scheduled_time, tone)
+            description = sys.argv[5] if len(sys.argv) > 5 else None
+            schedule_post(url, scheduled_time, tone, description=description)
 
     elif cmd == "list":
         list_scheduled()

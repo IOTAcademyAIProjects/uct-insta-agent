@@ -14,35 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#----------------------------------------------------------------
-# CAPTION GENERATION
-#----------------------------------------------------------------
-
-def generate_caption(image_count, tone='casual'):
-    """Generate a unified caption for the whole carousel"""
-    try:
-        client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-        message = client.messages.create(
-            model='claude-haiku-4-5-20251001',
-            max_tokens=300,
-            messages=[{
-                'role': 'user',
-                'content': f'''Generate an Instagram caption for a carousel post with {image_count} images.
-Tone: {tone}
-
-Requirements:
-1. Caption max 2-3 sentences, engaging and authentic
-2. Mention it's a series/collection if relevant
-3. 5-7 relevant hashtags
-4. A call to action (e.g. swipe to see more)
-
-Return only the caption and hashtags, nothing else.'''
-            }]
-        )
-        return message.content[0].text.strip()
-    except Exception as e:
-        print(f"Caption generation error: {e}")
-        return f"A collection worth swiping through. #Photography #Series #Moments"
+from pipelines.ai_router import generate_carousel_caption
 
 #----------------------------------------------------------------
 # IMAGE HOSTING
@@ -67,19 +39,9 @@ def upload_to_imgbb(image_url):
 
 def post_carousel(image_urls, caption):
     """Create carousel children, then carousel container, then publish"""
-    from composio import Composio
+    from pipelines.ig_connection import get_instagram_client
 
-    api_key = os.getenv('COMPOSIO_API_KEY')
-    client = Composio(api_key=api_key)
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)['items']
-
-    if not items:
-        raise ValueError("No Instagram account connected in Composio")
-
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
+    client, user_id, connected_account_id, ig_user_id = get_instagram_client()
 
     if len(image_urls) < 2 or len(image_urls) > 10:
         raise ValueError("Carousel requires between 2 and 10 images")
@@ -92,7 +54,7 @@ def post_carousel(image_urls, caption):
             slug='INSTAGRAM_CREATE_MEDIA_CONTAINER',
             arguments={
                 'image_url': url,
-                'media_type': 'IMAGE',
+                'media_type': 'CAROUSEL',
                 'is_carousel_item': True,
                 'ig_user_id': ig_user_id
             },
@@ -171,7 +133,7 @@ def main():
             print(f"Hosted: {hosted}")
 
         # Generate caption
-        print("Generating caption with Claude...")
+        print("Generating caption with AI Router...")
         caption = generate_carousel_caption(len(image_urls), tone)
         print(f"\nGenerated Caption:\n{caption}\n")
 

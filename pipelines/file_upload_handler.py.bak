@@ -5,17 +5,16 @@ Usage: python3 pipelines/file_upload_handler.py [file_path] [tone]
 """
 
 import os
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import sqlite3
 import requests
 import base64
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
-load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
 from pipelines.ai_router import generate_text, describe_image
 
-DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
+DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
 
 def upload_file_to_imgbb(file_path):
     """Upload a local file to imgbb and return public URL"""

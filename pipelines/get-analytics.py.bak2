@@ -18,20 +18,11 @@ sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
 from pipelines.ai_router import generate_analytics_summary
-from composio import Composio
+from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 
 def get_composio_client():
-    api_key = os.getenv('COMPOSIO_API_KEY')
-    client = Composio(api_key=api_key)
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)['items']
-    if not items:
-        raise ValueError("No Instagram account connected in Composio")
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv('INSTAGRAM_USER_ID')
-    return client, user_id, connected_account_id, ig_user_id
+    return get_instagram_client()
 
 
 def get_recent_posts(client, user_id, connected_account_id, ig_user_id, limit=50):
@@ -125,53 +116,6 @@ def analyze_by_content_type(posts_with_insights):
     return ranked
 
 
-def summarize_with_ai(posts_with_insights, content_type_ranking, date_range_label):
-    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-
-    data_text = ""
-    for p in posts_with_insights:
-        insights = p.get('insights')
-        reach = extract_metric_value(insights, 'reach')
-        likes = extract_metric_value(insights, 'likes')
-        comments = extract_metric_value(insights, 'comments')
-        saved = extract_metric_value(insights, 'saved')
-        data_text += f"\nPost ({p.get('media_type', 'UNKNOWN')}): {p.get('permalink', 'unknown')}\n"
-        data_text += f"Caption: {(p.get('caption') or '')[:80]}\n"
-        data_text += f"Posted: {p.get('timestamp', 'unknown')}\n"
-        data_text += f"Reach: {reach}, Likes: {likes}, Comments: {comments}, Saved: {saved}\n"
-        data_text += "---\n"
-
-    ranking_text = "\n".join([
-        f"{r['type']}: {r['count']} posts, avg engagement {r['avg_engagement']}, avg reach {r['avg_reach']}"
-        for r in content_type_ranking
-    ])
-
-    message = client.messages.create(
-        model='claude-haiku-4-5-20251001',
-        max_tokens=600,
-        messages=[{
-            'role': 'user',
-            'content': f'''You are summarizing Instagram performance for a Telegram message.
-Date range: {date_range_label}
-
-Per-post data:
-{data_text}
-
-Performance by content type (ranked by average engagement):
-{ranking_text}
-
-Write a friendly, plain-English summary covering:
-1. Which individual post performed best and why
-2. Total reach and engagement across the period
-3. Which CONTENT TYPE (image/video/carousel) the audience seems to enjoy most, based on the ranking above, and a one-line recommendation on what to post more of
-4. One quick actionable tip
-
-Keep it conversational, like texting a friend an update. Use emojis sparingly. Maximum 8 sentences.'''
-        }]
-    )
-    return message.content[0].text.strip()
-
-
 def parse_args(args):
     now = datetime.now(timezone.utc)
 
@@ -192,6 +136,29 @@ def parse_args(args):
         raise ValueError("Usage: get-analytics.py [days] OR get-analytics.py START_DATE END_DATE")
 
     return start, end, label
+
+
+def format_posts_for_summary(posts_with_insights):
+    data_text = ""
+    for p in posts_with_insights:
+        insights = p.get('insights')
+        reach = extract_metric_value(insights, 'reach')
+        likes = extract_metric_value(insights, 'likes')
+        comments = extract_metric_value(insights, 'comments')
+        saved = extract_metric_value(insights, 'saved')
+        data_text += f"\nPost ({p.get('media_type', 'UNKNOWN')}): {p.get('permalink', 'unknown')}\n"
+        data_text += f"Caption: {(p.get('caption') or '')[:80]}\n"
+        data_text += f"Posted: {p.get('timestamp', 'unknown')}\n"
+        data_text += f"Reach: {reach}, Likes: {likes}, Comments: {comments}, Saved: {saved}\n"
+        data_text += "---\n"
+    return data_text
+
+
+def format_ranking_for_summary(content_type_ranking):
+    return "\n".join([
+        f"{r['type']}: {r['count']} posts, avg engagement {r['avg_engagement']}, avg reach {r['avg_reach']}"
+        for r in content_type_ranking
+    ])
 
 
 def main():
@@ -221,8 +188,10 @@ def main():
     print("Analyzing performance by content type...")
     content_type_ranking = analyze_by_content_type(posts_with_insights)
 
-    print("Summarizing with Claude...")
-    summary = summarize_with_claude(posts_with_insights, content_type_ranking, date_range_label)
+    print("Summarizing with AI Router...")
+    data_text = format_posts_for_summary(posts_with_insights)
+    ranking_text = format_ranking_for_summary(content_type_ranking)
+    summary = generate_analytics_summary(data_text, ranking_text, date_range_label)
 
     print("\n=== ANALYTICS SUMMARY ===")
     print(f"Period: {date_range_label}")
@@ -231,4 +200,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except NoActiveInstagramConnection as e:
+        print(f"FAILED: {e}")
+        sys.exit(1)

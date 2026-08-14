@@ -1,5 +1,6 @@
 #!/bin/bash
-cd /teamspace/studios/this_studio/uct-insta-agent
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 ARGS=()
 if [ -n "$1" ]; then
@@ -9,4 +10,4 @@ if [ -n "$2" ]; then
   ARGS+=("$2")
 fi
 
-/home/zeus/miniconda3/envs/cloudspace/bin/python3 pipelines/get-analytics.py "${ARGS[@]}"
+python3 pipelines/get-analytics.py "${ARGS[@]}"

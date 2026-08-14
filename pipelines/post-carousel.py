@@ -6,43 +6,16 @@ Usage: python3 post-carousel.py "url1,url2,url3" "tone"
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import requests
 import sys
-sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
+sys.path.insert(0, PROJECT_ROOT)
 from dotenv import load_dotenv
 
 load_dotenv()
 
-#----------------------------------------------------------------
-# CAPTION GENERATION
-#----------------------------------------------------------------
-
-def generate_caption(image_count, tone='casual'):
-    """Generate a unified caption for the whole carousel"""
-    try:
-        client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-        message = client.messages.create(
-            model='claude-haiku-4-5-20251001',
-            max_tokens=300,
-            messages=[{
-                'role': 'user',
-                'content': f'''Generate an Instagram caption for a carousel post with {image_count} images.
-Tone: {tone}
-
-Requirements:
-1. Caption max 2-3 sentences, engaging and authentic
-2. Mention it's a series/collection if relevant
-3. 5-7 relevant hashtags
-4. A call to action (e.g. swipe to see more)
-
-Return only the caption and hashtags, nothing else.'''
-            }]
-        )
-        return message.content[0].text.strip()
-    except Exception as e:
-        print(f"Caption generation error: {e}")
-        return f"A collection worth swiping through. #Photography #Series #Moments"
+from pipelines.ai_router import generate_carousel_caption
 
 #----------------------------------------------------------------
 # IMAGE HOSTING
@@ -82,7 +55,7 @@ def post_carousel(image_urls, caption):
             slug='INSTAGRAM_CREATE_MEDIA_CONTAINER',
             arguments={
                 'image_url': url,
-                'media_type': 'IMAGE',
+                'media_type': 'CAROUSEL',
                 'is_carousel_item': True,
                 'ig_user_id': ig_user_id
             },
@@ -161,7 +134,7 @@ def main():
             print(f"Hosted: {hosted}")
 
         # Generate caption
-        print("Generating caption with Claude...")
+        print("Generating caption with AI Router...")
         caption = generate_carousel_caption(len(image_urls), tone)
         print(f"\nGenerated Caption:\n{caption}\n")
 

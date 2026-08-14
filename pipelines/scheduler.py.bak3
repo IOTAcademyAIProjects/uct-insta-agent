@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
 from dotenv import load_dotenv
 load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
-from composio import Composio
-from pipelines.ai_router import generate_caption
+from pipelines.ai_router import generate_caption, describe_image
+from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
 DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
 
@@ -51,13 +51,7 @@ def setup_scheduler_table():
 #----------------------------------------------------------------
 
 def get_client():
-    client = Composio(api_key=os.getenv("COMPOSIO_API_KEY"))
-    accounts = client.connected_accounts.list()
-    items = dict(accounts)["items"]
-    user_id = items[0].user_id
-    connected_account_id = items[0].id
-    ig_user_id = os.getenv("INSTAGRAM_USER_ID")
-    return client, user_id, connected_account_id, ig_user_id
+    return get_instagram_client()
 
 #----------------------------------------------------------------
 # IMGBB UPLOAD
@@ -124,7 +118,7 @@ def post_story(image_url):
 # SCHEDULING
 #----------------------------------------------------------------
 
-def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAGE", post_type="FEED"):
+def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAGE", post_type="FEED", description=None):
     setup_scheduler_table()
 
     # Upload image now to get permanent URL
@@ -134,7 +128,15 @@ def schedule_post(image_url, scheduled_time_str, tone="casual", media_type="IMAG
 
     # Generate caption now
     print("Generating caption with AI Router...")
-    caption = generate_caption(hosted_url, tone, media_type)
+    if description:
+        print(f"Using provided description: {description}")
+    elif media_type == "IMAGE":
+        print("Describing image with vision...")
+        description = describe_image(hosted_url) or "an interesting photo"
+    else:
+        # Vision model here is image-only; video falls back to generic
+        description = "an engaging video"
+    caption = generate_caption(description, tone, media_type)
     print(f"Caption generated.")
 
     # Parse scheduled time
@@ -214,20 +216,22 @@ def cancel_scheduled(post_id):
 def publish_post(image_url, caption, media_type, post_type):
     client, user_id, connected_account_id, ig_user_id = get_client()
 
+    # Composio's INSTAGRAM_CREATE_MEDIA_CONTAINER schema: for plain image
+    # feed posts, media_type must be OMITTED entirely (image is the
+    # default). Sending media_type: "IMAGE" is invalid and gets rejected.
+    # STORIES is a legitimate explicit value and stays as-is.
+    container_args = {
+        "image_url": image_url,
+        "caption": caption if post_type != "STORY" else None,
+        "content_type": "photo",
+        "ig_user_id": ig_user_id
+    }
     if post_type == "STORY":
-        container_type = "STORIES"
-    else:
-        container_type = media_type
+        container_args["media_type"] = "STORIES"
 
     step1 = client.tools.execute(
         slug="INSTAGRAM_CREATE_MEDIA_CONTAINER",
-        arguments={
-            "image_url": image_url,
-            "caption": caption if post_type != "STORY" else None,
-            "media_type": container_type,
-            "content_type": "photo",
-            "ig_user_id": ig_user_id
-        },
+        arguments=container_args,
         connected_account_id=connected_account_id,
         user_id=user_id,
         dangerously_skip_version_check=True
@@ -321,12 +325,13 @@ if __name__ == "__main__":
 
     elif cmd == "schedule":
         if len(sys.argv) < 4:
-            print("Usage: scheduler.py schedule [url] [YYYY-MM-DD HH:MM] [tone]")
+            print("Usage: scheduler.py schedule [url] [YYYY-MM-DD HH:MM] [tone] [description]")
         else:
             url = sys.argv[2]
             scheduled_time = sys.argv[3]
             tone = sys.argv[4] if len(sys.argv) > 4 else "casual"
-            schedule_post(url, scheduled_time, tone)
+            description = sys.argv[5] if len(sys.argv) > 5 else None
+            schedule_post(url, scheduled_time, tone, description=description)
 
     elif cmd == "list":
         list_scheduled()

@@ -24,7 +24,7 @@ Multi-AI Router (NVIDIA + Cerebras + Mistral), Composio MCP, and Pollinations AI
 | M8 | AI image generation (Pollinations SDXL) | Done | Abhishek |
 | M9 | AI video generation | Future scope | TBD |
 | M10 | Stories & advanced scheduling (SQLite queue) | Done | Abhishek |
-| M11 | Open source packaging & docs | Pending | TBD |
+| M11 | Open source packaging & docs | Done | Abhishek |
 
 ---
 
@@ -331,6 +331,35 @@ Direct phone file upload for video is included in the file upload
 handler but vision analysis is pending (see Known Issues above).
 
 ---
+
+
+---
+
+## Documentation
+
+| File | Purpose |
+|---|---|
+| [README.md](README.md) | Project overview, quick start, milestone status |
+| [SELFHELP.md](SELFHELP.md) | Model switching, rate limit fixes, session restore, troubleshooting |
+| [SKILLS.md](SKILLS.md) | All OpenClaw skills — what triggers them and what they do |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute skills, pipelines, and AI providers |
+| [info/openclawsetup.md](info/openclawsetup.md) | OpenClaw setup guide for team members |
+| [info/telegramsetup.md](info/telegramsetup.md) | Telegram bot pairing guide |
+
+---
+
+## Project Status — Complete
+
+All milestones M1 through M11 are complete. The project is open source ready.
+
+| What | Detail |
+|---|---|
+| Total milestones | 10 (M9 video generation moved to future scope) |
+| Milestones complete | M1, M2, M3, M4, M5, M6, M7, M8, M10, M11 |
+| AI providers | NVIDIA NIM + Cerebras + Mistral (all free, no credit card) |
+| Cost to run | Zero — all APIs are free tier |
+| Instagram account | @iot_academy_projects (Business) |
+| Telegram bot | @uct_clawgram_bot (UCT ClawGram) |
 
 ## License
 

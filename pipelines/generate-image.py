@@ -7,17 +7,18 @@ Usage: python3 pipelines/generate-image.py "your image description" [tone]
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import time
 import requests
 import sqlite3
 from urllib.parse import quote
-sys.path.insert(0, '/teamspace/studios/this_studio/uct-insta-agent')
+sys.path.insert(0, PROJECT_ROOT)
 from dotenv import load_dotenv
-load_dotenv('/teamspace/studios/this_studio/uct-insta-agent/.env')
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 from pipelines.ai_router import generate_text
 
-DB_PATH = '/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite'
+DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
 
 #----------------------------------------------------------------
 # IMAGE GENERATION — Pollinations AI

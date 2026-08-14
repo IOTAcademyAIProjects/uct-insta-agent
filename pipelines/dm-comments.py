@@ -11,23 +11,27 @@ Usage:
 """
 
 import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 import requests
 import sqlite3
-sys.path.insert(0, "/teamspace/studios/this_studio/uct-insta-agent")
+sys.path.insert(0, PROJECT_ROOT)
 from dotenv import load_dotenv
-load_dotenv("/teamspace/studios/this_studio/uct-insta-agent/.env")
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
 from pipelines.ai_router import generate_text
 from pipelines.ig_connection import get_instagram_client, NoActiveInstagramConnection
 
-DB_PATH = "/teamspace/studios/this_studio/uct-insta-agent/db/uct_agent.sqlite"
+DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
 
 def get_client():
     return get_instagram_client()
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = "8909720609"
+    chat_id = os.getenv("TELEGRAM_NOTIFY_CHAT_ID")
+    if not chat_id:
+        print("[WARNING] TELEGRAM_NOTIFY_CHAT_ID not set in .env — skipping notification")
+        return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     r = requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
     return r.status_code == 200
