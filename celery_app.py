@@ -22,6 +22,17 @@ if CELERY_ENABLED:
             broker=REDIS_URL,
             backend=REDIS_URL,
         )
+        # Use crontab for weekly beats (enterprise), fallback to interval if crontab unavailable
+        try:
+            from celery.schedules import crontab
+            weekly_brief_sched = crontab(hour=9, minute=0, day_of_week=1)  # Mon 09:00
+            improve_propose_sched = crontab(hour=10, minute=0, day_of_week=1)  # Mon 10:00
+            improve_measure_sched = crontab(hour=21, minute=0, day_of_week=0)  # Sun 21:00
+        except ImportError:
+            weekly_brief_sched = 60*60*24*7
+            improve_propose_sched = 60*60*24*7
+            improve_measure_sched = 60*60*24*7
+
         celery_app.conf.update(
             task_serializer="json",
             accept_content=["json"],
@@ -35,15 +46,15 @@ if CELERY_ENABLED:
                 },
                 "weekly-brief-monday-9am": {
                     "task": "celery_app.weekly_brief",
-                    "schedule": 60*60*24*7,  # simple weekly; real cron via celery beat cron at 9am Mon in prod
+                    "schedule": weekly_brief_sched,
                 },
                 "self-improve-propose-monday-10am": {
                     "task": "celery_app.self_improve_propose",
-                    "schedule": 60*60*24*7,
+                    "schedule": improve_propose_sched,
                 },
                 "self-improve-measure-sunday-9pm": {
                     "task": "celery_app.self_improve_measure",
-                    "schedule": 60*60*24*7,
+                    "schedule": improve_measure_sched,
                 },
             },
         )

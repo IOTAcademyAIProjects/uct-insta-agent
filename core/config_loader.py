@@ -5,6 +5,7 @@ Configuration Loader and Dynamic Watcher for ClawAgent
 import os
 import yaml
 import logging
+from core.security import mask_secrets
 from typing import Dict, Any, Callable, Optional
 
 logger = logging.getLogger("clawagent.config")
@@ -69,5 +70,5 @@ class ConfigWatcher:
             try:
                 self.observer.stop()
                 self.observer.join()
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")

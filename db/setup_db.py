@@ -293,8 +293,8 @@ def migrate_missing_columns(cursor):
             for col_name, col_def in columns:
                 if col_name not in existing_cols:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 def setup_database():
     os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
@@ -305,8 +305,8 @@ def setup_database():
         cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("PRAGMA busy_timeout=15000;")
         cursor.execute("PRAGMA foreign_keys=ON;")
-    except Exception:
-        pass
+    except Exception as e:
+            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
     for ddl in DDL_STATEMENTS:
         cursor.execute(ddl)

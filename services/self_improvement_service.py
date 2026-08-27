@@ -252,8 +252,8 @@ class SelfImprovementService:
             top = self.perf.rank_posts_by_engagement(brand_id, days=14, limit=20)
             if top:
                 perf_before = sum(p.get("engagement_rate",0) for p in top)/len(top)
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
         conn = get_connection()
         try:

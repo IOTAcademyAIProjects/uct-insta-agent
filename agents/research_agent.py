@@ -219,8 +219,8 @@ class ResearchAgent:
             from agents.analyst_agent import AnalystAgent
             perf = AnalystAgent().analyze_performance(days=7, brand_id=b_id)
             own_perf = perf.get("summary", own_perf)[:400]
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
         sys_p, user_p = build_competitor_analysis_prompt(
             brand_name=brand_name,

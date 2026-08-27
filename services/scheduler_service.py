@@ -6,6 +6,7 @@ Hardened with Datetime Normalization and Retry Error Logging.
 import os
 import time
 import logging
+from core.security import mask_secrets
 from typing import List, Dict, Any, Optional
 
 from datetime import datetime, timezone
@@ -67,14 +68,14 @@ class SchedulerService:
                 (b_id, year_week)
             ).fetchall()
             if rows:
-                return {"week_number": week_num, "ideas": [dict(r) for r in rows], "cached": True}
+                return {"week_number": year_week, "ideas": [dict(r) for r in rows], "cached": True}
             # Fallback to analytics_cache if used
             try:
                 r = conn.execute("SELECT summary FROM analytics_cache WHERE brand_id=? ORDER BY id DESC LIMIT 1", (b_id,)).fetchone()
                 if r:
                     return {"cached": False, "legacy": r["summary"]}
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             return None
         finally:
             conn.close()

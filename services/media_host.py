@@ -147,8 +147,8 @@ class MediaHostService:
                 ctype = head.headers.get("Content-Type", "").lower()
                 if "video" in ctype:
                     return "VIDEO"
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
         else:
             clean_path = file_or_url.lower()
             if clean_path.endswith((".mp4", ".mov", ".avi", ".mkv", ".webm")):

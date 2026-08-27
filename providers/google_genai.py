@@ -93,5 +93,15 @@ class GoogleGenAIProvider(ProviderClient):
         
         if not response.candidates:
             raise ValueError("Gemini vision analysis returned empty candidates.")
+        
+        candidate = response.candidates[0]
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if finish_reason in (2, 3, "SAFETY", "RECITATION"):
+            raise ValueError(f"Gemini vision blocked by safety filter: {finish_reason}")
             
-        return response.text.strip()
+        try:
+            return response.text.strip()
+        except ValueError as ve:
+            if candidate.content and candidate.content.parts:
+                return candidate.content.parts[0].text.strip()
+            raise ve

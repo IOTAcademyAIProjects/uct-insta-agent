@@ -94,8 +94,8 @@ class _PostgresConnWrapper:
         try:
             if self._last_cursor:
                 self._last_cursor.close()
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
         return self._conn.close()
 
     def __getattr__(self, name):
@@ -128,8 +128,8 @@ def get_connection():
         conn.execute("PRAGMA busy_timeout=15000;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
-    except Exception:
-        pass
+    except Exception as e:
+            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     return conn
 
 def normalize_datetime_to_utc(dt_str: Optional[str]) -> str:
@@ -170,8 +170,8 @@ def get_active_brand() -> Optional[Dict[str, Any]]:
             try:
                 conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (first["id"],))
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             return dict(first)
         
         default_name = os.getenv("BRAND_NAME", "DefaultBrand")
@@ -204,8 +204,8 @@ def get_active_brand() -> Optional[Dict[str, Any]]:
             try:
                 conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (brand["id"],))
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             return dict(brand)
         return None
     except sqlite3.OperationalError:
@@ -221,8 +221,8 @@ def get_active_brand() -> Optional[Dict[str, Any]]:
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 def get_brand(brand_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
@@ -251,23 +251,23 @@ def switch_active_brand(brand_name: str) -> bool:
             # For sqlite, BEGIN IMMEDIATE ensures exclusive lock
             try:
                 conn.execute("BEGIN IMMEDIATE")
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             conn.execute("UPDATE brands SET is_active = 0")
             conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (brand["id"],))
             conn.commit()
         except Exception:
             try:
                 conn.execute("ROLLBACK")
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             raise
         return True
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 def create_brand(name: str, tone_of_voice: str = "casual", color_palette: Optional[List[str]] = None) -> int:
     conn = get_connection()
@@ -324,24 +324,42 @@ def log_post(
     conn = get_connection()
     try:
         active_b = brand_id or (get_active_brand() or {}).get("id", 1)
-        conn.execute(
-            """INSERT OR REPLACE INTO posts (post_id, caption, media_type, tone, image_url, provider, brand_id, platform, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'POSTED')""",
-            (post_id, caption, media_type, tone, image_url, provider, active_b, platform)
-        )
+        if _is_pg_conn(conn):
+            conn.execute(
+                """INSERT INTO posts (post_id, caption, media_type, tone, image_url, provider, brand_id, platform, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'POSTED')
+                   ON CONFLICT (post_id) DO UPDATE SET caption=EXCLUDED.caption, media_type=EXCLUDED.media_type, tone=EXCLUDED.tone, image_url=EXCLUDED.image_url, provider=EXCLUDED.provider, brand_id=EXCLUDED.brand_id, platform=EXCLUDED.platform, status='POSTED'""",
+                (post_id, caption, media_type, tone, image_url, provider, active_b, platform)
+            )
+        else:
+            conn.execute(
+                """INSERT OR REPLACE INTO posts (post_id, caption, media_type, tone, image_url, provider, brand_id, platform, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'POSTED')""",
+                (post_id, caption, media_type, tone, image_url, provider, active_b, platform)
+            )
         conn.commit()
     except Exception as e:
         try:
-            conn.execute(
-                """INSERT OR REPLACE INTO posts (post_id, caption, media_type, tone, image_url, provider)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (post_id, caption, media_type, tone, image_url, provider)
-            )
+            if _is_pg_conn(conn):
+                conn.execute(
+                    """INSERT INTO posts (post_id, caption, media_type, tone, image_url, provider)
+                       VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (post_id) DO UPDATE SET caption=EXCLUDED.caption, media_type=EXCLUDED.media_type, tone=EXCLUDED.tone, image_url=EXCLUDED.image_url, provider=EXCLUDED.provider""",
+                    (post_id, caption, media_type, tone, image_url, provider)
+                )
+            else:
+                conn.execute(
+                    """INSERT OR REPLACE INTO posts (post_id, caption, media_type, tone, image_url, provider)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (post_id, caption, media_type, tone, image_url, provider)
+                )
             conn.commit()
         except Exception as ex:
             logger.warning(f"Could not log post to DB: {ex}")
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 # ============================================================
 # DRAFTS REPOSITORY
@@ -488,19 +506,31 @@ def mark_dm_seen(conversation_id: str, platform: str = "INSTAGRAM", brand_id: Op
     conn = get_connection()
     try:
         active_b = brand_id or (get_active_brand() or {}).get("id", 1)
-        conn.execute(
-            "INSERT OR IGNORE INTO seen_dms (conversation_id, platform, brand_id) VALUES (?, ?, ?)",
-            (conversation_id, platform, active_b)
-        )
+        if _is_pg_conn(conn):
+            conn.execute(
+                "INSERT INTO seen_dms (conversation_id, platform, brand_id) VALUES (%s, %s, %s) ON CONFLICT (conversation_id) DO NOTHING",
+                (conversation_id, platform, active_b)
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO seen_dms (conversation_id, platform, brand_id) VALUES (?, ?, ?)",
+                (conversation_id, platform, active_b)
+            )
         conn.commit()
     except Exception:
         try:
-            conn.execute("INSERT OR IGNORE INTO seen_dms (conversation_id) VALUES (?)", (conversation_id,))
+            if _is_pg_conn(conn):
+                conn.execute("INSERT INTO seen_dms (conversation_id) VALUES (%s) ON CONFLICT (conversation_id) DO NOTHING", (conversation_id,))
+            else:
+                conn.execute("INSERT OR IGNORE INTO seen_dms (conversation_id) VALUES (?)", (conversation_id,))
             conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 def save_scheduled_post(
     image_url: str,

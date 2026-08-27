@@ -8,7 +8,7 @@ import os
 import logging
 from typing import Optional
 
-from core.security import sanitize_user_input, validate_safe_url, SecurityException
+from core.security import sanitize_user_input, validate_safe_url, SecurityException, mask_secrets
 from services.draft_service import DraftService
 from services.brand_service import BrandService
 from telegram.keyboards import build_draft_keyboard, build_brand_keyboard, build_analytics_keyboard, build_self_improve_keyboard, to_telegram_markup, render_draft_preview_text, render_self_improve_text
@@ -35,8 +35,8 @@ def is_allowed_user(user_id: str) -> bool:
                         allowed_list = chan.get("allowFrom") or chan.get("allow_from") or []
                         if str(user_id) in [str(x) for x in allowed_list]:
                             return True
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
         # No allowlist configured → deny (fail-closed)
         logger.warning("No Telegram allowlist configured — denying user %s (set TELEGRAM_ALLOW_FROM or ALLOW_OPEN=true for dev)", user_id)
         return False
@@ -74,8 +74,8 @@ def handle_photo_message(image_url: str, tone: str = "casual", description: Opti
             bs = BrandService()
             ok, issues = bs.check_compliance(draft.get("caption",""), brand.get("id") if brand else None)
             compliance = {"score": 0.95 if ok else 0.6, "issues": issues}
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
         text = render_draft_preview_text(full, brand_name=brand.get("name","Brand") if brand else "Brand", compliance=compliance)
         # Add variants count
         variants = draft.get("caption_variants") or []

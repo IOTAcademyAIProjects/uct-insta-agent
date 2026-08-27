@@ -20,15 +20,29 @@ class CompetitorService:
         try:
             b_id = brand_id or 1
             clean_handle = handle.strip().lstrip("@")
-            cur = conn.execute(
-                """INSERT OR IGNORE INTO competitors (brand_id, platform, handle, follower_count, avg_engagement_rate)
-                   VALUES (?, ?, ?, 0, 0.0)""",
-                (b_id, platform.upper(), clean_handle)
-            )
+            # Handle PG vs SQLite for ON CONFLICT
+            from db.repository import get_database_url
+            is_pg = bool(get_database_url() and get_database_url().lower().startswith(("postgres","postgresql")))
+            if is_pg:
+                cur = conn.execute(
+                    """INSERT INTO competitors (brand_id, platform, handle, follower_count, avg_engagement_rate)
+                       VALUES (%s, %s, %s, 0, 0.0) ON CONFLICT (brand_id, platform, handle) DO NOTHING""",
+                    (b_id, platform.upper(), clean_handle)
+                )
+            else:
+                cur = conn.execute(
+                    """INSERT OR IGNORE INTO competitors (brand_id, platform, handle, follower_count, avg_engagement_rate)
+                       VALUES (?, ?, ?, 0, 0.0)""",
+                    (b_id, platform.upper(), clean_handle)
+                )
             conn.commit()
             # Return id of existing or new
-            if cur.lastrowid:
-                return cur.lastrowid
+            try:
+                last_id = cur.lastrowid
+            except Exception:
+                last_id = getattr(cur, 'lastrowid', 0)
+            if last_id and last_id != 0:
+                return last_id
             row = conn.execute("SELECT id FROM competitors WHERE brand_id=? AND handle=? AND platform=?", (b_id, clean_handle, platform.upper())).fetchone()
             return row["id"] if row else 0
         finally:
@@ -103,20 +117,24 @@ class CompetitorService:
                     {"platform_post_id": f"mock_{cid}_1_{datetime.now(timezone.utc).strftime('%Y%m%d')}", "post_type": "CAROUSEL", "caption_summary": f"@{handle} carousel: '5 mistakes to avoid' - carousel educational", "estimated_engagement": 0.042},
                     {"platform_post_id": f"mock_{cid}_2_{datetime.now(timezone.utc).strftime('%Y%m%d')}", "post_type": "REEL", "caption_summary": f"@{handle} reel: quick tip video with trending audio", "estimated_engagement": 0.038},
                 ]
-                # Only insert mock if last sync >24h or no existing mock today to avoid spam
+                # Only insert mock if last sync >24h to avoid spam — always dedup, regardless of COMPOSIO key (H-10 fix)
                 conn2 = get_connection()
                 try:
                     existing = conn2.execute("SELECT COUNT(*) as c FROM competitor_posts WHERE competitor_id=? AND scraped_at > datetime('now','-1 day')", (cid,)).fetchone()["c"]
-                    if existing > 0 and not os.getenv("COMPOSIO_API_KEY"):
-                        # Skip duplicate mock within 24h unless forced
+                    if existing > 0:
+                        # Skip duplicate mock within 24h; also guard duplicate platform_post_id via log_competitor_post uniqueness
                         pass
                     else:
                         for p in fetched[:max_posts]:
                             try:
+                                # Guard duplicate platform_post_id
+                                dup = conn2.execute("SELECT 1 FROM competitor_posts WHERE platform_post_id=? LIMIT 1", (p.get("platform_post_id"),)).fetchone()
+                                if dup:
+                                    continue
                                 self.log_competitor_post(cid, p["post_type"], p["caption_summary"], p["estimated_engagement"], p.get("platform_post_id"))
                                 inserted += 1
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
                     # Update avg engagement and last_scraped_at
                     avg_eng = sum(p["estimated_engagement"] for p in fetched) / len(fetched) if fetched else 0.0
                     conn2.execute("UPDATE competitors SET avg_engagement_rate=?, last_scraped_at=? WHERE id=?", (avg_eng, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), cid))
@@ -130,8 +148,8 @@ class CompetitorService:
                 try:
                     self.log_competitor_post(cid, p.get("post_type","FEED"), p.get("caption_summary",""), p.get("estimated_engagement",0.0), p.get("platform_post_id"))
                     inserted += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                        logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
             # Update stats
             conn3 = get_connection()
             try:

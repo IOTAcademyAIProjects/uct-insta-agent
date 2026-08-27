@@ -53,8 +53,8 @@ def mark_dm_seen(conversation_id):
         conn.execute("INSERT OR IGNORE INTO seen_dms (conversation_id) VALUES (?)", (conversation_id,))
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
 def get_dms(limit=10, notify=False):
     client, user_id, connected_account_id, ig_user_id = get_client()

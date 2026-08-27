@@ -130,8 +130,8 @@ def render_draft_preview_text(draft: Dict[str, Any], brand_name: str = "Brand", 
         try:
             import json
             platforms = ", ".join(json.loads(platforms))
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     alt_text = draft.get("alt_text") or "Auto alt-text will be generated"
     compliance_line = ""
     if compliance:

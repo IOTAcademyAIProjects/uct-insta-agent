@@ -170,8 +170,8 @@ class RepurposeService:
                     ok, issues = self.brand_service.check_compliance(result[key], b_id)
                     if not ok:
                         logger.warning(f"Brand compliance warning for {key}: {issues}")
-            except Exception:
-                pass
+            except Exception as e:
+                    logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
             # Persist campaign + optional posts per platform (as PENDING posts)
             campaign_id = self._create_campaign(b_id, clean_source, title=quote_card[:60])
@@ -190,8 +190,8 @@ class RepurposeService:
                                VALUES (?, ?, ?, ?, ?, ?, 'PENDING')""",
                             (campaign_id, b_id, platform, ptype, caption, media_urls)
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
                 conn.commit()
             finally:
                 conn.close()

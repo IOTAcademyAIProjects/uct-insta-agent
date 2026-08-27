@@ -7,6 +7,7 @@ import os
 import json
 import re
 import logging
+from core.security import mask_secrets
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -215,14 +216,14 @@ class TrendService:
                     # Use tone or name hint; default tech
                     if brand:
                         brand_niche = brand.get("tone_of_voice", "technology")[:50]
-                except Exception:
-                    pass
+                except Exception as e:
+                        logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
                 signals = self.fetch_trending_topics(brand_niche=brand_niche)
                 for s in signals:
                     try:
                         self.save_trend(b_id, s["topic"], s["source"], s.get("relevance_score", 0.85), s.get("trend_velocity", "RISING"))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
                 rows = conn.execute(
                     """SELECT * FROM trend_insights 
                        WHERE brand_id = ? AND (expires_at IS NULL OR expires_at > ?)

@@ -27,17 +27,20 @@ def migrate_database():
     print(f"Checking migration requirements for {db_path}...")
     setup_database()
     
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Ensure all existing posts have brand_id and platform
-    cursor.execute("UPDATE posts SET brand_id = 1 WHERE brand_id IS NULL")
-    cursor.execute("UPDATE posts SET platform = 'INSTAGRAM' WHERE platform IS NULL")
-    cursor.execute("UPDATE drafts SET brand_id = 1 WHERE brand_id IS NULL")
-    cursor.execute("UPDATE ai_calls SET brand_id = 1 WHERE brand_id IS NULL")
-
-    conn.commit()
-    conn.close()
+    from db.repository import get_connection
+    conn = get_connection()
+    try:
+        # Ensure all existing posts have brand_id and platform
+        conn.execute("UPDATE posts SET brand_id = 1 WHERE brand_id IS NULL")
+        conn.execute("UPDATE posts SET platform = 'INSTAGRAM' WHERE platform IS NULL")
+        conn.execute("UPDATE drafts SET brand_id = 1 WHERE brand_id IS NULL")
+        conn.execute("UPDATE ai_calls SET brand_id = 1 WHERE brand_id IS NULL")
+        conn.commit()
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     print("Migration completed successfully.")
 
 if __name__ == '__main__':

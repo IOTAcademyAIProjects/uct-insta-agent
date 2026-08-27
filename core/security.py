@@ -11,6 +11,7 @@ import socket
 import ipaddress
 import urllib.parse
 import logging
+import asyncio
 from typing import Optional, List, Tuple, Set, Any, Dict
 
 logger = logging.getLogger("clawagent.security")
@@ -83,6 +84,10 @@ def validate_safe_url(url: str, allowed_schemes: Tuple[str, ...] = ("http", "htt
         raise SecurityException(f"Could not resolve hostname '{hostname}': {e}")
 
     return url.strip()
+
+async def async_validate_safe_url(url: str, allowed_schemes: Tuple[str, ...] = ("http", "https")) -> str:
+    """Async wrapper for validate_safe_url using asyncio.to_thread to avoid blocking event loop (Phase 4)."""
+    return await asyncio.to_thread(validate_safe_url, url, allowed_schemes)
 
 PROJECT_ROOT_DEFAULT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -220,16 +225,16 @@ def extract_json_from_llm(raw_text: str) -> Dict[str, Any]:
     # 1. Direct parse attempt
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+            logger.debug(f"Handled json.JSONDecodeError: {mask_secrets(str(e))}")
 
     # 2. Extract from markdown code fence
     fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
     if fence_match:
         try:
             return json.loads(fence_match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+                logger.debug(f"Handled json.JSONDecodeError: {mask_secrets(str(e))}")
 
     # 3. Regex search for outermost JSON object or array
     brace_match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", text)

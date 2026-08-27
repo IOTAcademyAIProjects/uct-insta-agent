@@ -7,10 +7,11 @@ import time
 import logging
 from typing import Dict, Any, Optional, List
 
-from core.exceptions import AllProvidersExhausted
+from core.exceptions import AllProvidersExhausted, RateLimitExceeded
 from core.circuit_breaker import CircuitBreaker
 from core.config_loader import ConfigLoader, ConfigWatcher
 from core.security import mask_secrets, validate_safe_url
+from core.rate_limiter import get_rate_limiter
 from providers.base import ProviderClient
 from providers.openai_compatible import OpenAICompatibleProvider
 from providers.google_genai import GoogleGenAIProvider
@@ -160,6 +161,19 @@ class ModelRouter:
             client = self._get_provider_client(p_name)
             if not client:
                 continue
+
+            # Rate limiting check (Phase 5)
+            try:
+                limiter = get_rate_limiter()
+                limits = p_conf.get("limits", {})
+                # Use brand_id if available via prompt? For now global per provider
+                limiter.check_and_record(p_name, limits)
+            except RateLimitExceeded as rl:
+                logger.warning(f"Rate limit hit for {p_name}: {mask_secrets(str(rl))}")
+                last_error = f"RateLimitExceeded: {mask_secrets(str(rl))}"
+                continue
+            except Exception as e:
+                logger.warning(f"Rate limiter error for {p_name}: {mask_secrets(str(e))}")
             
             try:
                 start_t = time.time()
@@ -174,7 +188,14 @@ class ModelRouter:
                     cb.record_success()
                 
                 self._log_call(p_name, p_conf.get("model", ""), task_type, success=True, latency_ms=latency)
+                # Structured log for observability
+                logger.info(f"provider_call provider={p_name} task={task_type} latency_ms={latency} success=true")
                 return result
+            except RateLimitExceeded as rl:
+                # Don't trip circuit breaker for rate limit, just try next provider
+                logger.warning(f"Provider {p_name} rate limited during call: {mask_secrets(str(rl))}")
+                last_error = mask_secrets(str(rl))
+                continue
             except Exception as e:
                 masked_err = mask_secrets(str(e))
                 logger.error(f"Provider {p_name} failed for task {task_type}: {masked_err}")
@@ -206,6 +227,17 @@ class ModelRouter:
             client = self._get_provider_client(p_name)
             if not client or not client.supports_vision:
                 continue
+
+            # Rate limiting
+            try:
+                limiter = get_rate_limiter()
+                limiter.check_and_record(p_name, p_conf.get("limits", {}))
+            except RateLimitExceeded as rl:
+                logger.warning(f"Vision rate limit hit for {p_name}: {mask_secrets(str(rl))}")
+                last_error = f"RateLimitExceeded: {mask_secrets(str(rl))}"
+                continue
+            except Exception as e:
+                logger.warning(f"Rate limiter error for {p_name}: {mask_secrets(str(e))}")
             
             try:
                 start_t = time.time()
@@ -213,7 +245,12 @@ class ModelRouter:
                 if cb:
                     cb.record_success()
                 self._log_call(p_name, p_conf.get("model", ""), "vision", success=True, latency_ms=int((time.time()-start_t)*1000))
+                logger.info(f"provider_call provider={p_name} task=vision latency_ms={int((time.time()-start_t)*1000)} success=true")
                 return desc
+            except RateLimitExceeded as rl:
+                logger.warning(f"Vision provider {p_name} rate limited: {mask_secrets(str(rl))}")
+                last_error = mask_secrets(str(rl))
+                continue
             except Exception as e:
                 masked_err = mask_secrets(str(e))
                 logger.error(f"Vision provider {p_name} failed: {masked_err}")
@@ -243,12 +280,28 @@ class ModelRouter:
             client = self._get_provider_client(p_name)
             if not client:
                 continue
+
+            # Rate limiting
+            try:
+                limiter = get_rate_limiter()
+                limiter.check_and_record(p_name, p_conf.get("limits", {}))
+            except RateLimitExceeded as rl:
+                logger.warning(f"Image rate limit hit for {p_name}: {mask_secrets(str(rl))}")
+                last_error = f"RateLimitExceeded: {mask_secrets(str(rl))}"
+                continue
+            except Exception as e:
+                logger.warning(f"Rate limiter error for {p_name}: {mask_secrets(str(e))}")
                 
             try:
                 img_bytes = client.generate_image(prompt, width, height, model)
                 if cb:
                     cb.record_success()
+                logger.info(f"provider_call provider={p_name} task=image_generation success=true")
                 return img_bytes
+            except RateLimitExceeded as rl:
+                logger.warning(f"Image provider {p_name} rate limited: {mask_secrets(str(rl))}")
+                last_error = mask_secrets(str(rl))
+                continue
             except Exception as e:
                 masked_err = mask_secrets(str(e))
                 logger.error(f"Image gen provider {p_name} failed: {masked_err}")
@@ -263,8 +316,8 @@ class ModelRouter:
         try:
             from db.repository import log_ai_call
             log_ai_call(provider, model, task_type, success, latency_ms=latency_ms, error_message=mask_secrets(error_msg))
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
     def get_status(self) -> Dict[str, Any]:
         status = {}

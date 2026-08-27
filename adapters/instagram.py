@@ -7,6 +7,7 @@ import os
 import time
 import requests
 import logging
+from core.security import mask_secrets
 from typing import List, Optional, Dict, Any, Tuple
 
 from adapters.base import PlatformAdapter, MediaSpec, PublishResult
@@ -73,8 +74,8 @@ class InstagramAdapter(PlatformAdapter):
                         args = arguments if arguments is not None else params
                         return self._tools.execute(slug=sl, arguments=args, **kwargs)
                 client.actions = _ActionsProxy(client.tools)
-        except Exception:
-            pass
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
         return client
 
     def _poll_container_ready(self, client, account_id, creation_id, timeout: int = 30):
@@ -100,8 +101,8 @@ class InstagramAdapter(PlatformAdapter):
                         if status in ("ERROR", "EXPIRED", "FAILED"):
                             logger.warning(f"Container {creation_id} status {status}")
                             return False
-                    except Exception:
-                        pass  # Action not available, fall back to timed wait
+                    except Exception as e:
+                            logger.warning(f"Handled Exception: {mask_secrets(str(e))}")  # Action not available, fall back to timed wait
                 time.sleep(delay)
                 elapsed += delay
                 delay = min(delay * 1.5, 8)

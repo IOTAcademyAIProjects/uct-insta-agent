@@ -4,6 +4,7 @@ Draft Management Service with Brand Voice & A/B Caption Variants
 
 import json
 import logging
+from core.security import mask_secrets
 from typing import Dict, Any, Optional, List, Tuple
 
 from core.model_router import get_default_router
@@ -87,8 +88,8 @@ class DraftService:
                     fallback_b = primary_caption.split(".")[0][:100] + " 🚀 What would you add?"
                     if fallback_b != primary_caption:
                         variants.append(fallback_b)
-                except Exception:
-                    pass
+                except Exception as e:
+                        logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
 
         # Brand compliance + alt-text + readability (S2.3 hardening)
         try:
