@@ -1,4 +1,3 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-python3 pipelines/post-carousel.py "$1" "$2"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$PROJECT_DIR/cli.py" carousel "$1" --tone "${2:-casual}"
