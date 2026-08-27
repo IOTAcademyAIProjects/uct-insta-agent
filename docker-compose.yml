@@ -1,0 +1,93 @@
+version: "3.8"
+
+# ClawAgent Team/Agency Deployment
+# Solo creator: just `python cli.py` + SQLite (no Docker needed)
+# Team: `docker compose up -d` -> agent + worker + beat + redis + postgres
+# Cost: VPS $5-10/mo, AI APIs still free tier
+
+services:
+  agent:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://agent:clawagent@db:5432/clawagent
+      - REDIS_URL=redis://redis:6379/0
+      - POST_TIMEZONE=${POST_TIMEZONE:-Asia/Kolkata}
+    volumes:
+      - ./config:/app/config:ro
+      - ./db:/app/db
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - db
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health',timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: .
+    command: celery -A celery_app worker --loglevel=info
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://agent:clawagent@db:5432/clawagent
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./config:/app/config:ro
+      - ./db:/app/db
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - db
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    command: celery -A celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://agent:clawagent@db:5432/clawagent
+      - REDIS_URL=redis://redis:6379/0
+      - POST_TIMEZONE=${POST_TIMEZONE:-Asia/Kolkata}
+    depends_on:
+      - redis
+      - db
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: clawagent
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: clawagent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d clawagent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

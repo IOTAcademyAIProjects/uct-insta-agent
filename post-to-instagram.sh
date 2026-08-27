@@ -1,4 +1,3 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-python3 pipelines/post-with-caption.py "$1" "$2" "$3"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$PROJECT_DIR/cli.py" post "$1" --tone "${2:-casual}" --description "$3"

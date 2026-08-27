@@ -15,9 +15,9 @@ from pipelines.ai_router import (
     get_storage_stats, get_post_history,
     get_pending_drafts, delete_draft
 )
-import sqlite3
+from db.repository import get_connection, get_db_path
 
-DB_PATH = os.path.join(PROJECT_ROOT, 'db', 'uct_agent.sqlite')
+DB_PATH = get_db_path()
 
 def cmd_storage():
     stats = get_storage_stats()
@@ -67,29 +67,44 @@ def cmd_delete(draft_id):
         print(f"Failed to delete draft {draft_id}.")
 
 def cmd_clear_drafts():
-    conn = sqlite3.connect(DB_PATH)
-    count = conn.execute('SELECT COUNT(*) FROM drafts').fetchone()[0]
-    conn.execute('DELETE FROM drafts')
-    conn.commit()
-    conn.close()
+    conn = get_connection()
+    try:
+        count = conn.execute('SELECT COUNT(*) FROM drafts').fetchone()[0]
+        conn.execute('DELETE FROM drafts')
+        conn.commit()
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     print(f"Cleared {count} drafts.")
 
 def cmd_clear_history():
-    conn = sqlite3.connect(DB_PATH)
-    count = conn.execute('SELECT COUNT(*) FROM posts').fetchone()[0]
-    conn.execute('DELETE FROM posts')
-    conn.commit()
-    conn.close()
+    conn = get_connection()
+    try:
+        count = conn.execute('SELECT COUNT(*) FROM posts').fetchone()[0]
+        conn.execute('DELETE FROM posts')
+        conn.commit()
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     print(f"Cleared {count} post history entries.")
 
 def cmd_ai_stats():
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        '''SELECT provider, COUNT(*) as calls,
-           SUM(success) as successful
-           FROM ai_calls GROUP BY provider'''
-    ).fetchall()
-    conn.close()
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            '''SELECT provider, COUNT(*) as calls,
+               SUM(success) as successful
+               FROM ai_calls GROUP BY provider'''
+        ).fetchall()
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+                logger.warning(f"Handled Exception: {mask_secrets(str(e))}")
     if not rows:
         print("No AI calls logged yet.")
         return

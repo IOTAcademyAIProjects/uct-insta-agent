@@ -1,0 +1,154 @@
+version: 3
+hot_reload: true
+reload_interval_seconds: 5
+
+# Default provider per task category
+defaults:
+  orchestration: cerebras
+  creative_writing: nvidia
+  vision: gemini_flash
+  reasoning: mistral
+  deep_analysis: gemini_pro
+  image_generation: pollinations
+  fast_formatting: cerebras
+
+providers:
+  cerebras:
+    type: openai_compatible
+    base_url: https://api.cerebras.ai/v1
+    api_key_env: CEREBRAS_API_KEY
+    model: gpt-oss-120b
+    capabilities: [text, fast_formatting, orchestration]
+    cost_tier: free
+    enabled: true
+    limits:
+      tokens_per_day: 1000000
+      rpm: 60
+    circuit_breaker:
+      failure_threshold: 3
+      recovery_timeout_seconds: 60
+
+  nvidia:
+    type: openai_compatible
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    model: z-ai/glm-5.2
+    capabilities: [text, creative_writing]
+    cost_tier: free
+    enabled: true
+    limits:
+      rpm: 40
+      credits: 1000
+    circuit_breaker:
+      failure_threshold: 3
+      recovery_timeout_seconds: 120
+
+  gemini_flash:
+    type: google_genai
+    api_key_env: GEMINI_API_KEY
+    model: gemini-2.5-flash
+    capabilities: [text, vision, reasoning, creative_writing]
+    cost_tier: free
+    enabled: true
+    limits:
+      rpd: 1500
+      rpm: 15
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout_seconds: 60
+
+  gemini_pro:
+    type: google_genai
+    api_key_env: GEMINI_API_KEY
+    model: gemini-2.5-pro
+    capabilities: [reasoning, deep_analysis]
+    cost_tier: free
+    enabled: true
+    limits:
+      rpd: 25
+    circuit_breaker:
+      failure_threshold: 2
+      recovery_timeout_seconds: 300
+
+  mistral:
+    type: openai_compatible
+    base_url: https://api.mistral.ai/v1
+    api_key_env: MISTRAL_API_KEY
+    model: mistral-large-latest
+    capabilities: [text, creative_writing, reasoning]
+    cost_tier: free
+    enabled: true
+    limits:
+      tokens_per_month: 1000000000
+    circuit_breaker:
+      failure_threshold: 3
+      recovery_timeout_seconds: 120
+
+  pollinations:
+    type: pollinations
+    base_url: https://image.pollinations.ai
+    model: flux
+    capabilities: [image_generation]
+    cost_tier: free
+    enabled: true
+    limits:
+      rpm: 10
+
+  # ---- OPTIONAL / PAID PROVIDERS ----
+  openrouter:
+    type: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+    capabilities: [text, vision]
+    cost_tier: free
+    enabled: true
+    circuit_breaker:
+      failure_threshold: 3
+      recovery_timeout_seconds: 60
+
+  banana_dev:
+    type: banana
+    base_url: https://api.banana.dev/v1
+    api_key_env: BANANA_API_KEY
+    model: flux-1-dev
+    capabilities: [image_generation]
+    cost_tier: paid
+    enabled: false
+
+  replicate:
+    type: replicate
+    base_url: https://api.replicate.com/v1
+    api_key_env: REPLICATE_API_TOKEN
+    model: black-forest-labs/flux-schnell
+    capabilities: [image_generation]
+    cost_tier: paid
+    enabled: false
+
+  openai:
+    type: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    model: gpt-4o-mini
+    capabilities: [text, vision, creative_writing, reasoning]
+    cost_tier: paid
+    enabled: false
+
+  ollama:
+    type: openai_compatible
+    base_url: http://localhost:11434/v1
+    api_key_env: OLLAMA_PLACEHOLDER
+    model: llama3.2
+    capabilities: [text, creative_writing]
+    cost_tier: free
+    enabled: false
+
+# Fallback chains by task category
+fallback_chains:
+  orchestration: [cerebras, gemini_flash, nvidia, mistral]
+  creative_writing: [nvidia, mistral, gemini_flash, cerebras, openai]
+  vision: [gemini_flash, openrouter, openai]
+  reasoning: [mistral, gemini_pro, gemini_flash, openai]
+  deep_analysis: [gemini_pro, mistral, openai]
+  image_generation: [pollinations, banana_dev, replicate]
+  fast_formatting: [cerebras, gemini_flash, nvidia]

@@ -1,0 +1,46 @@
+{
+  "model": "anthropic/claude-haiku-4-5",
+  "channels": {
+    "telegram": {
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "dmPolicy": "allowlist",
+      "allowFrom": ["YOUR_TELEGRAM_USER_ID"]
+    }
+  },
+  "anthropic": {
+    "apiKey": "YOUR_ANTHROPIC_API_KEY"
+  },
+  "skills": [
+    "instagram-post",
+    "instagram-carousel",
+    "instagram-drafts",
+    "instagram-generate",
+    "instagram-analytics",
+    "instagram-dm",
+    "instagram-scheduler"
+  ],
+  "hooks": ["session-memory"],
+  "agents": {
+    "orchestrator": "agents/orchestrator.py",
+    "creator": "agents/creator_agent.py",
+    "vision": "agents/vision_agent.py",
+    "analyst": "agents/analyst_agent.py",
+    "research": "agents/research_agent.py",
+    "designer": "agents/designer_agent.py",
+    "scheduler": "agents/scheduler_agent.py",
+    "publisher": "agents/publisher_agent.py"
+  },
+  "pipelines": {
+    "post": "cli.py post",
+    "carousel": "cli.py carousel",
+    "preview": "cli.py preview",
+    "approve": "cli.py approve",
+    "generate": "cli.py generate",
+    "analytics": "cli.py analytics",
+    "trends": "cli.py trends",
+    "ideas": "cli.py ideas --cron",
+    "repurpose": "cli.py repurpose",
+    "brand": "cli.py brand",
+    "scheduler": "pipelines/scheduler.py"
+  }
+}

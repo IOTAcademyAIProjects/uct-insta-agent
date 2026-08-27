@@ -1,0 +1,24 @@
+openai>=1.30.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+pyyaml>=6.0
+watchdog>=4.0.0
+google-generativeai>=0.8.0
+composio-core>=0.5.39
+pillow>=10.0.0
+pytrends>=4.9.2
+fastapi>=0.110.0
+uvicorn>=0.28.0
+# Optional team/scale dependencies (free tier, install when needed)
+psycopg2-binary>=2.9.0  # Postgres for docker-compose team deployment
+redis>=5.0.0            # Queue backend for celery
+celery>=5.3.0           # Distributed worker/beat
+cloudinary>=1.36.0      # Optional CDN media host
+python-telegram-bot>=21.0  # Telegram inline keyboards HITL
+apscheduler>=3.10.0     # Fallback scheduler when Redis not set
+slowapi>=0.1.8          # API rate limiting (Phase 5)
+structlog>=24.0         # Structured JSON logging
+pytest>=9.0.0           # Test runner
+pytest-cov>=5.0         # Coverage >=80%
+ruff>=0.8.0             # Linting
+mypy>=1.10.0            # Strict typing
