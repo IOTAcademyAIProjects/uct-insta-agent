@@ -84,8 +84,12 @@ class ModelRouter:
         p_type = p_conf.get("type")
         if p_type in ("pollinations", "ollama"):
             return True
+        # Ollama uses type openai_compatible with localhost base_url and placeholder env
+        base_url = str(p_conf.get("base_url", "")).lower()
+        api_key_env = p_conf.get("api_key_env", "")
+        if "localhost" in base_url or "127.0.0.1" in base_url or api_key_env == "OLLAMA_PLACEHOLDER":
+            return True
         
-        api_key_env = p_conf.get("api_key_env")
         if not api_key_env:
             return True
         

@@ -216,6 +216,26 @@ DDL_STATEMENTS = [
         content_ranking TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS improvement_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        brand_id INTEGER REFERENCES brands(id),
+        week_number INTEGER,
+        experiment_type TEXT DEFAULT 'L1_HOOK',
+        hypothesis TEXT,
+        changed_field TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        metric_before REAL,
+        metric_after REAL,
+        predicted_lift REAL DEFAULT 0.0,
+        status TEXT DEFAULT 'PROPOSED',
+        dry_run BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        applied_at DATETIME,
+        measured_at DATETIME
+    );
     """
 ]
 
@@ -284,6 +304,7 @@ def setup_database():
     try:
         cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("PRAGMA busy_timeout=15000;")
+        cursor.execute("PRAGMA foreign_keys=ON;")
     except Exception:
         pass
 

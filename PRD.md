@@ -1,10 +1,10 @@
 # Product Requirement Document — ClawAgent v3.0
 
 **Codename:** ClawAgent  
-**Document Version:** 3.0.0  
-**Status:** Architecture Blueprint  
+**Document Version:** 3.1.0  
+**Status:** Architecture Blueprint — Self-Improving Loop  
 **Author:** Swarit Sharma / Uniconverge Technologies Pvt. Ltd.  
-**Last Updated:** 2026-08-27  
+**Last Updated:** 2026-08-28  
 
 ---
 
@@ -396,6 +396,59 @@ For freelancers and agencies managing multiple brands:
 - **Caption readability scoring:** Flesch-Kincaid grade level shown in preview
 - **Multi-language support:** Captions generated in user's preferred language with cultural adaptation (not just translation)
 
+### 3.13 Self-Improving Loop (Observe → Hypothesize → Propose → Approve → Measure)
+
+**Why it exists:** Static brand memory rots. The agent must learn from its own outcomes and competitor shifts without drifting or hallucinating brand voice. All changes are proposed as dry-run, human-approved, and measured with auto-revert.
+
+**Loop overview (1 proposal / brand / week cap):**
+```
+Observe (14d posts, trends, competitor gaps, ai_calls latency)
+   ↓
+Hypothesize (LLM reasoning OR heuristic fallback) → ONE field change
+   ↓
+Propose (improvement_log status=PROPOSED, dry_run=1) → Telegram card
+   ↓
+Human Approve/Reject (Telegram [✅ Apply] [❌ Reject] or CLI/API)
+   ↓
+Apply (BrandService.update_profile → brands.hashtag_count_range / sample_hooks / avg_sentence_length)
+   ↓
+Measure after 7d (compare metric_before vs metric_after engagement_rate)
+   ↓
+Keep (MEASURED) or Auto-Revert (REVERTED) if lift < -5%
+```
+
+**L1 Safe (auto-proposable, human gate):**
+- `hashtag_count_range` (e.g. "5-7" → "1-3" when winners avg 1.2 tags)
+- `sample_hooks` (refresh top 3 winner openers)
+- `avg_sentence_length` / `emoji_frequency` (align to winner readability)
+
+**L3 Gated (never auto, manual review only):** `tone_of_voice, prohibited_words, mandatory_elements` — rejected if LLM proposes.
+
+**Telegram UX:**
+```
+🧬 Self-Improvement Proposal #12 — BrandX | PROPOSED
+Type: L1_HASHTAG | Field: hashtag_count_range
+From: 5-7 → To: 1-3
+Hypothesis: Top 5 avg 1.2 tags vs brand 5-7, bottom 6.1; tightening lifts 15%
+Predicted: 15% | Baseline: 3.76%
+[✅ Apply Insight] [❌ Reject]  [📊 View Details] [📈 History]
+```
+
+**CLI:**
+```bash
+python cli.py improve propose          # dry-run propose
+python cli.py improve list             # pending
+python cli.py improve approve 12       # apply
+python cli.py improve measure 12       # compare 7d
+python cli.py improve history          # audit
+```
+
+**Safety & Cost:**
+- $0 — uses `reasoning` free chain `mistral → gemini_pro` `config/models.yaml:152` or heuristic fallback when no keys.
+- Allowlist `openclaw-config/openclaw.json:allowFrom` + `core/security.py:sanitize_user_input` + `mask_secrets` for logs `improvement_log` `db/setup_db.py:220`.
+- Single weekly cap + dry-run default prevents drift; L3 gated.
+- Every hypothesis logged to `improvement_log` for leader audit.
+
 ---
 
 ## Part IV — Cost Architecture
@@ -447,6 +500,7 @@ For freelancers and agencies managing multiple brands:
 | Provider availability | > 99.5% | Circuit breaker logs: successful calls / total calls |
 | User monthly cost | ₹0 for solo creators | Sum of all API charges |
 | Content ideas acted upon | > 30% of suggestions | Ratio of trend suggestions that become published posts |
+| Self-improvement lift | > 10% engagement delta kept, <5% false apply | `improvement_log` `metric_before → metric_after` KEEP/REVERT rate |
 
 ---
 
@@ -460,3 +514,4 @@ For freelancers and agencies managing multiple brands:
 | **Phase 4** | Intelligence | Competitor monitoring, trend detection, weekly strategy briefs, content ideation | Week 11-14 |
 | **Phase 5** | Advanced UX | Telegram inline keyboards, multi-brand switching, A/B testing, content repurposing | Week 15-18 |
 | **Phase 6** | Scale & Polish | Redis queue, web dashboard (optional), agency multi-tenant, documentation | Week 19-22 |
+| **Phase 7** | Self-Improving Loop | Observe→Hypothesize→Propose→Approve→Measure, improvement_log, L1 safe + L3 gated, auto-revert, leader audit | Week 23-24 |

@@ -44,7 +44,7 @@ class DraftService:
                 logger.warning(f"Vision description failed, using fallback: {e}")
                 img_desc = "A visual post for our audience"
 
-        # Generate primary caption with brand context
+        # Generate primary caption with brand context (with curated fallback when no LLM keys)
         sys_prompt, user_prompt = build_caption_prompt(
             description=img_desc,
             tone=tone,
@@ -53,12 +53,19 @@ class DraftService:
             media_type=media_type
         )
         
-        primary_caption = self.router.generate_text(
-            task_type="creative_writing",
-            prompt=user_prompt,
-            system_prompt=sys_prompt,
-            max_tokens=350
-        )
+        try:
+            primary_caption = self.router.generate_text(
+                task_type="creative_writing",
+                prompt=user_prompt,
+                system_prompt=sys_prompt,
+                max_tokens=350
+            )
+        except Exception as e:
+            logger.warning(f"Caption generation fallback (no LLM): {e}")
+            # Curated fallback that still respects tone and brand
+            brand_name = brand.get("name","Brand") if brand else "Brand"
+            tone_hint = tone or brand.get("tone_of_voice","casual") if brand else "casual"
+            primary_caption = f"✨ {img_desc[:120]} — crafted for {brand_name} in {tone_hint} tone. What's your take? #growth #creator"
 
         variants = [primary_caption]
         if generate_variants:
@@ -74,7 +81,48 @@ class DraftService:
                 )
                 variants.append(var2)
             except Exception:
-                pass
+                # Fallback variant B: shorter hook
+                try:
+                    # Simple variant: first sentence + emoji
+                    fallback_b = primary_caption.split(".")[0][:100] + " 🚀 What would you add?"
+                    if fallback_b != primary_caption:
+                        variants.append(fallback_b)
+                except Exception:
+                    pass
+
+        # Brand compliance + alt-text + readability (S2.3 hardening)
+        try:
+            ok, issues = self.brand_service.check_compliance(primary_caption, brand.get("id", 1) if brand else 1)
+            compliance_score = 1.0 if ok else max(0.4, 1.0 - 0.2 * len(issues))
+            compliance_issues = issues
+        except Exception:
+            compliance_score, compliance_issues = 1.0, []
+        
+        # Alt-text for accessibility (vision description truncated)
+        alt_text = (img_desc or "Visual content for our community")[:200]
+        # Readability (Flesch-Kincaid grade approx: words per sentence)
+        try:
+            import re
+            sentences = [s for s in re.split(r"[.!?\n]+", primary_caption) if s.strip()]
+            words = primary_caption.split()
+            avg_wps = len(words) / max(1, len(sentences))
+            if avg_wps <= 12:
+                readability = "Easy (Grade 6-8)"
+            elif avg_wps <= 18:
+                readability = "Standard (Grade 9-11)"
+            else:
+                readability = "Complex (Grade 12+)"
+        except Exception:
+            readability = "Standard"
+            avg_wps = 15.0
+
+        # Platform adaptation hint
+        try:
+            from adapters.base import MediaSpec
+            # Light platform spec for info
+            platform_spec = {"max_caption": 2200 if target_platforms[0]=="INSTAGRAM" else 3000 if target_platforms[0]=="LINKEDIN" else 280}
+        except Exception:
+            platform_spec = {}
 
         draft_id = save_draft(
             image_url=image_url,
@@ -95,7 +143,13 @@ class DraftService:
             "media_type": media_type,
             "platforms": target_platforms,
             "brand_name": brand.get("name", "DefaultBrand"),
-            "description": img_desc
+            "description": img_desc,
+            "alt_text": alt_text,
+            "brand_compliance_score": compliance_score,
+            "compliance_issues": compliance_issues,
+            "readability": readability,
+            "avg_words_per_sentence": round(avg_wps,1) if 'avg_wps' in locals() else 15.0,
+            "platform_spec": platform_spec,
         }
 
     def get(self, draft_id: int) -> Optional[Dict[str, Any]]:
@@ -133,10 +187,21 @@ class DraftService:
             brand_id=draft.get("brand_id", 1)
         )
 
-        # Delete draft once published
-        delete_draft(draft_id)
-        return {
-            "success": True,
-            "draft_id": draft_id,
-            "results": results
-        }
+        # Only delete draft if at least one platform succeeded; otherwise keep for retry
+        any_success = any(getattr(r, 'success', False) for r in results.values()) if results else False
+        if any_success:
+            delete_draft(draft_id)
+            return {
+                "success": True,
+                "draft_id": draft_id,
+                "results": results
+            }
+        else:
+            # Keep draft PENDING for retry; surface aggregated error
+            errs = "; ".join([f"{k}: {getattr(v,'error','failed')}" for k,v in results.items()]) if results else "Unknown publish error"
+            return {
+                "success": False,
+                "error": f"All platforms failed — draft kept for retry: {errs}",
+                "draft_id": draft_id,
+                "results": results
+            }

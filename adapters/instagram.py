@@ -45,9 +45,73 @@ class InstagramAdapter(PlatformAdapter):
                 raise NoActiveInstagramConnection("No ACTIVE Instagram connection found in Composio.")
             account_id = active_ig[0].id
 
+        # Wrap client to support both legacy .tools (slug/arguments) and new .actions (action/params) for backward compat C-10
+        client = self._wrap_composio_client(client)
         self._client = client
         self.account_id = account_id
         return self._client, self.account_id, self.ig_user_id
+
+    def _wrap_composio_client(self, client):
+        """Adds .tools alias to .actions and vice versa with param translation for legacy pipelines."""
+        try:
+            # If client has actions, make tools an alias that translates slug->action, arguments->params
+            if hasattr(client, "actions") and not hasattr(client, "tools"):
+                class _ToolsProxy:
+                    def __init__(self, actions):
+                        self._actions = actions
+                    def execute(self, slug=None, action=None, arguments=None, params=None, **kwargs):
+                        act = action or slug
+                        pr = params if params is not None else arguments
+                        return self._actions.execute(action=act, params=pr, **kwargs)
+                client.tools = _ToolsProxy(client.actions)
+            if hasattr(client, "tools") and not hasattr(client, "actions"):
+                class _ActionsProxy:
+                    def __init__(self, tools):
+                        self._tools = tools
+                    def execute(self, action=None, slug=None, params=None, arguments=None, **kwargs):
+                        sl = slug or action
+                        args = arguments if arguments is not None else params
+                        return self._tools.execute(slug=sl, arguments=args, **kwargs)
+                client.actions = _ActionsProxy(client.tools)
+        except Exception:
+            pass
+        return client
+
+    def _poll_container_ready(self, client, account_id, creation_id, timeout: int = 30):
+        """Polls container status with exponential backoff instead of fixed sleep C-12."""
+        # Try to use dedicated status check if available, otherwise just wait with backoff
+        elapsed = 0
+        delay = 2
+        while elapsed < timeout:
+            try:
+                # Attempt status check via composio if action exists; ignore failure and just wait
+                if hasattr(client, "actions"):
+                    try:
+                        # Some composio versions expose INSTAGRAM_GET_MEDIA_CONTAINER
+                        res = client.actions.execute(
+                            action="INSTAGRAM_GET_MEDIA",
+                            params={"media_id": creation_id},
+                            connected_account_id=account_id
+                        )
+                        data = res.get("data", {}) if isinstance(res, dict) else {}
+                        status = str(data.get("status_code") or data.get("status") or "").upper()
+                        if status in ("FINISHED", "READY"):
+                            return True
+                        if status in ("ERROR", "EXPIRED", "FAILED"):
+                            logger.warning(f"Container {creation_id} status {status}")
+                            return False
+                    except Exception:
+                        pass  # Action not available, fall back to timed wait
+                time.sleep(delay)
+                elapsed += delay
+                delay = min(delay * 1.5, 8)
+                # For fast path (image), return after first poll if no status API
+                if elapsed >= 6 and "CAROUSEL" not in str(creation_id):
+                    return True
+            except Exception:
+                time.sleep(delay)
+                elapsed += delay
+        return True  # Proceed to publish after timeout
 
     def get_media_spec(self, post_type: str = "FEED") -> MediaSpec:
         if post_type.upper() == "STORY":
@@ -157,7 +221,7 @@ class InstagramAdapter(PlatformAdapter):
                     raw_response=container_res
                 )
 
-            time.sleep(3)
+            self._poll_container_ready(client, account_id, creation_id, timeout=30)
             publish_params = {"creation_id": creation_id}
             if ig_user_id:
                 publish_params["ig_user_id"] = ig_user_id
@@ -218,7 +282,7 @@ class InstagramAdapter(PlatformAdapter):
                 c_ok, cid, _ = self._validate_action_response(c_res, "CREATE_CAROUSEL_ITEM")
                 if c_ok and cid:
                     children_ids.append(cid)
-                time.sleep(1)
+                    self._poll_container_ready(client, account_id, cid, timeout=15)
 
             if len(children_ids) < 2:
                 return PublishResult(platform="INSTAGRAM", success=False, error="Carousel requires at least 2 valid image containers.")
@@ -240,7 +304,7 @@ class InstagramAdapter(PlatformAdapter):
             if not r_ok or not creation_id:
                 return PublishResult(platform="INSTAGRAM", success=False, error=f"Failed to create carousel root container: {r_err}")
 
-            time.sleep(4)
+            self._poll_container_ready(client, account_id, creation_id, timeout=30)
             publish_params = {"creation_id": creation_id}
             if ig_user_id:
                 publish_params["ig_user_id"] = ig_user_id
@@ -294,7 +358,7 @@ class InstagramAdapter(PlatformAdapter):
             if not c_ok or not creation_id:
                 return PublishResult(platform="INSTAGRAM", success=False, error=f"Failed to create story container: {c_err}")
 
-            time.sleep(3)
+            self._poll_container_ready(client, account_id, creation_id, timeout=30)
             pub_params = {"creation_id": creation_id}
             if ig_user_id:
                 pub_params["ig_user_id"] = ig_user_id

@@ -20,17 +20,105 @@ DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "db", "uct_agent.sqlite")
 ALLOWED_TABLES = {
     "posts", "drafts", "analytics_cache", "ai_calls",
     "brands", "scheduled_posts", "competitors", "trend_insights",
-    "seen_dms", "campaigns", "competitor_posts", "content_ideas"
+    "seen_dms", "campaigns", "competitor_posts", "content_ideas",
+    "improvement_log"
 }
 
 def get_db_path() -> str:
     return os.getenv("DB_PATH", DEFAULT_DB_PATH)
 
-def get_connection() -> sqlite3.Connection:
+def get_database_url() -> Optional[str]:
+    return os.getenv("DATABASE_URL")
+
+# Postgres wrapper for optional team deployment SPEC_SHEET.md:905-925
+class _PostgresConnWrapper:
+    """Thread-safe wrapper: new cursor per execute, safe placeholder translation."""
+    def __init__(self, pg_conn):
+        self._conn = pg_conn
+        self._last_cursor = None
+        self.row_factory = None  # compat
+
+    def _new_cursor(self):
+        try:
+            import psycopg2.extras
+            return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        except Exception:
+            return self._conn.cursor()
+
+    def _translate(self, query: str) -> str:
+        # Naive but safe for our codebase: no '?' inside string literals used in queries
+        # For robustness, avoid touching LIKE patterns containing '?'
+        if "?" not in query:
+            return query
+        # Only replace ? that are parameter placeholders (not inside single quotes)
+        # Simple state machine: track in-string
+        out = []
+        in_single = False
+        for ch in query:
+            if ch == "'" and (not out or out[-1] != "\\"):
+                in_single = not in_single
+                out.append(ch)
+            elif ch == "?" and not in_single:
+                out.append("%s")
+            else:
+                out.append(ch)
+        return "".join(out)
+
+    def execute(self, query: str, params: tuple = None):
+        pg_query = self._translate(query)
+        if pg_query.strip().upper().startswith("PRAGMA"):
+            class _Dummy:
+                def fetchone(self): return None
+                def fetchall(self): return []
+                @property
+                def lastrowid(self): return 0
+                @property
+                def rowcount(self): return 0
+            return _Dummy()
+        cur = self._new_cursor()
+        self._last_cursor = cur
+        cur.execute(pg_query, params or ())
+        return cur
+
+    def executemany(self, query: str, seq):
+        pg_query = self._translate(query)
+        cur = self._new_cursor()
+        self._last_cursor = cur
+        cur.executemany(pg_query, seq)
+        return cur
+
+    def commit(self):
+        return self._conn.commit()
+
+    def close(self):
+        try:
+            if self._last_cursor:
+                self._last_cursor.close()
+        except Exception:
+            pass
+        return self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+def get_connection():
     """
-    Returns an optimized, concurrency-hardened SQLite connection
-    with WAL mode and a 15-second busy timeout to prevent database lockups.
+    Returns DB connection: Postgres if DATABASE_URL=postgres://... else optimized SQLite WAL.
+    SQLite default for solo creator ($0), Postgres for team/Agency docker-compose.
     """
+    db_url = get_database_url()
+    if db_url and db_url.strip().lower().startswith(("postgres://", "postgresql://")):
+        try:
+            import psycopg2
+            import psycopg2.extras
+            pg_conn = psycopg2.connect(db_url)
+            pg_conn.autocommit = False
+            return _PostgresConnWrapper(pg_conn)
+        except ImportError:
+            logger.warning("DATABASE_URL set but psycopg2 not installed — falling back to SQLite. pip install psycopg2-binary")
+        except Exception as e:
+            logger.warning(f"Postgres connect failed, fallback to SQLite: {mask_secrets(str(e))}")
+    # SQLite fallback
     path = get_db_path()
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     conn = sqlite3.connect(path, timeout=30.0)
@@ -39,6 +127,7 @@ def get_connection() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA busy_timeout=15000;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
     except Exception:
         pass
     return conn
@@ -65,28 +154,60 @@ def normalize_datetime_to_utc(dt_str: Optional[str]) -> str:
 # BRAND REPOSITORY
 # ============================================================
 
+def _is_pg_conn(conn) -> bool:
+    return isinstance(conn, _PostgresConnWrapper)
+
 def get_active_brand() -> Optional[Dict[str, Any]]:
     conn = get_connection()
     try:
+        # Ensure single active brand check is atomic where possible
         row = conn.execute("SELECT * FROM brands WHERE is_active = 1 LIMIT 1").fetchone()
         if row:
             return dict(row)
         
         first = conn.execute("SELECT * FROM brands ORDER BY id ASC LIMIT 1").fetchone()
         if first:
-            conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (first["id"],))
-            conn.commit()
+            try:
+                conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (first["id"],))
+                conn.commit()
+            except Exception:
+                pass
             return dict(first)
         
         default_name = os.getenv("BRAND_NAME", "DefaultBrand")
-        conn.execute(
-            """INSERT INTO brands (name, is_active, tone_of_voice, color_palette, emoji_frequency, hashtag_count_range)
-               VALUES (?, 1, 'casual and engaging', '["#000000", "#FFFFFF"]', 2.0, '5-7')""",
-            (default_name,)
-        )
-        conn.commit()
+        try:
+            if _is_pg_conn(conn):
+                conn.execute(
+                    """INSERT INTO brands (name, is_active, tone_of_voice, color_palette, emoji_frequency, hashtag_count_range)
+                       VALUES (%s, 1, 'casual and engaging', '["#000000", "#FFFFFF"]', 2.0, '5-7') ON CONFLICT (name) DO NOTHING""",
+                    (default_name,)
+                )
+            else:
+                conn.execute(
+                    """INSERT OR IGNORE INTO brands (name, is_active, tone_of_voice, color_palette, emoji_frequency, hashtag_count_range)
+                       VALUES (?, 1, 'casual and engaging', '["#000000", "#FFFFFF"]', 2.0, '5-7')""",
+                    (default_name,)
+                )
+            conn.commit()
+        except Exception as e:
+            # Handle race: another thread inserted same name
+            if "UNIQUE" in str(e) or "duplicate" in str(e).lower():
+                pass
+            else:
+                logger.warning(f"get_active_brand insert race: {e}")
         brand = conn.execute("SELECT * FROM brands WHERE is_active = 1 LIMIT 1").fetchone()
-        return dict(brand) if brand else None
+        if brand:
+            return dict(brand)
+        # Fallback re-select by name
+        brand = conn.execute("SELECT * FROM brands WHERE name = ? LIMIT 1", (default_name,)).fetchone()
+        if brand:
+            try:
+                conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (brand["id"],))
+                conn.commit()
+            except Exception:
+                pass
+            return dict(brand)
+        return None
     except sqlite3.OperationalError:
         return {
             "id": 1,
@@ -98,7 +219,10 @@ def get_active_brand() -> Optional[Dict[str, Any]]:
             "sample_hooks": "[]"
         }
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def get_brand(brand_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
@@ -122,12 +246,28 @@ def switch_active_brand(brand_name: str) -> bool:
         brand = conn.execute("SELECT id FROM brands WHERE LOWER(name) = LOWER(?)", (brand_name.strip(),)).fetchone()
         if not brand:
             return False
-        conn.execute("UPDATE brands SET is_active = 0")
-        conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (brand["id"],))
-        conn.commit()
+        # Atomic switch: use transaction
+        try:
+            # For sqlite, BEGIN IMMEDIATE ensures exclusive lock
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+            except Exception:
+                pass
+            conn.execute("UPDATE brands SET is_active = 0")
+            conn.execute("UPDATE brands SET is_active = 1 WHERE id = ?", (brand["id"],))
+            conn.commit()
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
         return True
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def create_brand(name: str, tone_of_voice: str = "casual", color_palette: Optional[List[str]] = None) -> int:
     conn = get_connection()

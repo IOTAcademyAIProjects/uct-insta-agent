@@ -1,9 +1,9 @@
-# Technical Specification Sheet — ClawAgent v3.0
+# Technical Specification Sheet — ClawAgent v3.1
 
-**Document Version:** 3.0.0  
-**Codename:** ClawAgent  
+**Document Version:** 3.1.0  
+**Codename:** ClawAgent — Self-Improving Loop  
 **Author:** Swarit Sharma / Uniconverge Technologies Pvt. Ltd.  
-**Last Updated:** 2026-08-27  
+**Last Updated:** 2026-08-28  
 
 ---
 
@@ -63,6 +63,7 @@ graph TD
         COMP[Competitor Monitor]
         TREND[Trend Detector]
         PERF[Performance Learner]
+        SELF[🧬 Self-Improving Loop<br/>Observe→Hypothesize→Propose→Approve→Measure]
     end
 
     subgraph Persistence Layer
@@ -70,6 +71,7 @@ graph TD
         CACHE[(Redis Cache - Optional)]
         CDN[Media CDN: imgbb / Cloudinary / S3]
         BRAND[(Brand Profiles & Voice Vectors)]
+        IMPROVE[(improvement_log<br/>Audit & L1/L3 Gates)]
     end
 
     TG --> GW
@@ -99,9 +101,14 @@ graph TD
     RESEARCH --> COMP
     RESEARCH --> TREND
     ANALYST --> PERF
+    PERF --> SELF
+    SELF --> BM
+    SELF --> DB
+    SELF --> IMPROVE
     PUBLISHER --> CDN
     ORCH --> DB
     SCHEDULER --> CACHE
+    ANALYST -.-> SELF
 ```
 
 ### 1.2 Process Flow — Post Creation
@@ -579,6 +586,29 @@ CREATE TABLE IF NOT EXISTS engagement_log (
     notified BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- SELF-IMPROVING LOOP (v3.1)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS improvement_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brand_id INTEGER REFERENCES brands(id),
+    week_number INTEGER,                -- ISO week
+    experiment_type TEXT DEFAULT 'L1_HOOK', -- L1_HASHTAG, L1_READABILITY, L1_HOOK, L1_NONE
+    hypothesis TEXT,                    -- 2-sentence why + predicted lift
+    changed_field TEXT,                 -- ALLOWED_FIELDS: hashtag_count_range, sample_hooks, avg_sentence_length, emoji_frequency; L3 gated: tone_of_voice
+    old_value TEXT,
+    new_value TEXT,
+    metric_before REAL,                 -- avg engagement_rate 14d before
+    metric_after REAL,                  -- avg 7d after APPLIED
+    predicted_lift REAL DEFAULT 0.0,    -- 0.05-0.25
+    status TEXT DEFAULT 'PROPOSED',     -- PROPOSED, APPLIED, REJECTED, MEASURED, REVERTED
+    dry_run BOOLEAN DEFAULT 1,          -- 1=dry-run needs human, 0=applied
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    applied_at DATETIME,
+    measured_at DATETIME
+);
 ```
 
 ---
@@ -848,6 +878,70 @@ paths:
   /api/v3/competitors/{competitor_id}/analysis:
     get:
       summary: Get competitor analysis report
+
+  /api/v3/self-improve/propose:
+    post:
+      summary: Propose self-improvement (dry-run, 1/week cap)
+      security: [bearer: []]
+      parameters:
+        - name: brand_id
+          in: query
+          schema: {type: integer}
+        - name: dry_run
+          in: query
+          schema: {type: boolean, default: true}
+      responses:
+        200:
+          content:
+            application/json:
+              example:
+                proposed: true
+                proposal: {id: 12, changed_field: "hashtag_count_range", old_value: "5-7", new_value: "1-3", predicted_lift: 0.15, status: "PROPOSED"}
+
+  /api/v3/self-improve/pending:
+    get:
+      summary: List pending proposals
+      responses:
+        200:
+          content:
+            application/json:
+              example:
+                pending: [{id: 12, changed_field: "hashtag_count_range", status: "PROPOSED"}]
+
+  /api/v3/self-improve/{proposal_id}/approve:
+    post:
+      summary: Human approve → apply to brands table
+      security: [bearer: []]
+      responses:
+        200:
+          content:
+            application/json:
+              example:
+                success: true
+                proposal: {id: 12, status: "APPLIED", applied_at: "2026-08-28T10:00:00Z"}
+
+  /api/v3/self-improve/{proposal_id}/measure:
+    post:
+      summary: Measure lift after 7d, auto keep/revert if < -5%
+      security: [bearer: []]
+      responses:
+        200:
+          content:
+            application/json:
+              example:
+                before: 3.76
+                after: 4.21
+                lift: 0.12
+                action: "KEEP"
+                proposal: {id: 12, status: "MEASURED"}
+
+  /api/v3/self-improve/history:
+    get:
+      summary: Audit log for leader
+      parameters:
+        - name: brand_id
+          in: query
+          schema: {type: integer}
 ```
 
 ---
@@ -876,6 +970,14 @@ Row 1: [📊 Last 7 Days]  [📊 Last 30 Days]
 Row 2: [📊 Custom Range]  [🔍 Competitor Compare]
 ```
 
+**Self-Improvement Proposal (v3.1):**
+```
+🧬 Proposal #12 — BrandX | PROPOSED
+From: 5-7 → To: 1-3 (hashtag_count_range) lift 15%
+Row 1: [✅ Apply Insight]  [❌ Reject]
+Row 2: [📊 View Details]   [📈 History]
+```
+
 ### 8.2 Command Reference (v3.0)
 
 | Command | Description |
@@ -898,12 +1000,94 @@ Row 2: [📊 Custom Range]  [🔍 Competitor Compare]
 | `/repurpose [post_id]` | Repurpose a post to other platforms |
 | `/ai_status` | Model provider health dashboard |
 | `/cost` | Show estimated API usage and costs |
+| `/improve propose` | Propose self-improvement (dry-run, 1/week cap) |
+| `/improve list` | List pending proposals |
+| `/improve approve [id]` | Apply insight to Brand Profile |
+| `/improve history` | Audit `improvement_log` |
 
 ---
 
-## 9. Deployment Specifications
+## 9. Self-Improving Loop Specifications (v3.1)
 
-### 9.1 Minimum Viable Deployment (Solo Creator)
+### 9.1 Loop State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> OBSERVE: Weekly cron Mon 10:00 POST_TIMEZONE
+    OBSERVE --> HYPOTHESIZE: top vs bottom posts, trends, ai_health
+    HYPOTHESIZE --> PROPOSED: 1 proposal / brand / week (dry_run=1)
+    PROPOSED --> APPLIED: human Telegram [✅ Apply] / CLI approve / API Bearer
+    PROPOSED --> REJECTED: human [❌ Reject]
+    APPLIED --> MEASURED: after 7d auto / manual POST /measure
+    MEASURED --> KEEP: lift > -5%
+    MEASURED --> REVERTED: lift < -5% (auto BrandService.update_profile revert)
+    REJECTED --> [*]
+    KEEP --> [*]
+    REVERTED --> [*]
+    PROPOSED --> PROPOSED: second propose same week blocked (1/week cap)
+```
+
+### 9.2 Service Interface
+
+```python
+class SelfImprovementService:
+    def observe(self, brand_id: int) -> Dict  # 14d posts, hashtag/wps, ai_health, trends
+    def hypothesize(self, brand_id: int) -> Dict  # LLM reasoning → L1 field OR heuristic fallback
+    def propose(self, brand_id: int, dry_run: bool = True) -> Dict  # improvement_log PROPOSED, 1/week cap
+    def approve(self, proposal_id: int) -> Dict  # L1 safe only, L3 gated rejected
+    def reject(self, proposal_id: int) -> Dict
+    def measure(self, proposal_id: int) -> Dict  # metric_before vs metric_after, KEEP/REVERT
+    def get_history(self, brand_id: int, limit: int) -> List
+```
+
+**Allowed fields:** `ALLOWED_FIELDS` `services/self_improvement_service.py:12` — `hashtag_count_range, sample_hooks, avg_sentence_length, emoji_frequency` (L1 safe), `tone_of_voice, prohibited_words, mandatory_elements` (L3 gated → reject).
+
+**Heuristic fallback when no LLM keys ($0):** `SelfImprovementService._heuristic_proposal()` `services/self_improvement_service.py:90` — top 5 avg hashtags < brand mid-1.5 → propose tighter range, else wps drift >3 → propose readability, else refresh top hooks.
+
+### 9.3 Telegram HITL
+
+**Proposal card:**
+```
+🧬 Self-Improvement Proposal #12 — BrandX | PROPOSED
+Type: L1_HASHTAG | Field: hashtag_count_range
+From: 5-7 → To: 1-3
+Hypothesis: Top 5 avg 1.2 vs brand 5-7; tightening lifts 15%
+Predicted: 15% | Baseline: 3.76%
+[✅ Apply Insight] [❌ Reject]  [📊 View Details] [📈 History]
+```
+Callback `improve_apply:12` → `telegram/callbacks.py:120` → `SelfImprovementService.approve()` → `brands` `services/brand_service.py:51` updated + `improvement_log` `APPLIED`.
+
+**Commands:** `/improve propose` → dry-run, `/improve list`, `/improve view 12`, `/improve history` `telegram/bot.py:98 handle_improve_command`.
+
+### 9.4 Scheduling
+
+- **Solo:** `services/scheduler_service.py:100 trigger_self_improve()` called via cron `0 10 * * 1 python cli.py improve propose` or `pipelines/scheduler.py weekly` fallback.
+- **Team:** `celery_app.py:31` beat `self-improve-propose-monday-10am` (weekly) + `self-improve-measure-sunday-9pm` (measure prior APPLIED). `REDIS_URL` `docker-compose.yml:1` enables Celery; else in-process `SchedulerService` `is_celery_enabled()` false → APScheduler path.
+
+### 9.5 Safety & Audit
+
+- **Cost $0:** uses `reasoning` free chain `config/models.yaml:152` `mistral→gemini_pro`, heuristic when exhausted `core/exceptions.py:9`.
+- **Allowlist:** `openclaw-config/openclaw.json:allowFrom`, `TELEGRAM_ALLOW_FROM` `.env.example:57`, `api.py:19 verify_bearer`.
+- **Sanitization:** `sanitize_user_input` `core/security.py:167`, `mask_secrets` `core/security.py:151` for `improvement_log.hypothesis` logs.
+- **Cap:** SQL check `SELECT * WHERE week_number=? AND status IN ('PROPOSED','APPLIED')` `services/self_improvement_service.py:180` blocks second proposal.
+- **Revert:** if `lift < -5%` `services/self_improvement_service.py:310` auto reverts `brands` via `BrandService.update_profile`.
+
+### 9.6 CLI Reference
+
+| Command | Description |
+|---|---|
+| `python cli.py improve propose` | Dry-run propose (1/week cap) |
+| `python cli.py improve list` | List pending PROPOSED |
+| `python cli.py improve approve 12` | Apply → brands updated |
+| `python cli.py improve reject 12` | Reject |
+| `python cli.py improve measure 12` | Compare 7d avg → KEEP/REVERT |
+| `python cli.py improve history` | Last 20 audit `improvement_log` |
+
+---
+
+## 10. Deployment Specifications
+
+### 10.1 Minimum Viable Deployment (Solo Creator)
 
 ```
 Runtime: Python 3.11 + Node.js 18
@@ -913,7 +1097,7 @@ Hosting: Any machine with internet (laptop, Raspberry Pi, free cloud VM)
 Cost: $0/month
 ```
 
-### 9.2 Team / Agency Deployment
+### 10.2 Team / Agency Deployment
 
 ```
 Runtime: Python 3.11 + Node.js 18 + FastAPI
@@ -923,7 +1107,7 @@ Hosting: Docker Compose on any VPS ($5-10/month)
 Cost: $5-10/month (VPS only, AI APIs still free)
 ```
 
-### 9.3 Docker Compose (Team)
+### 10.3 Docker Compose (Team)
 
 ```yaml
 version: "3.8"

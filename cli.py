@@ -149,6 +149,13 @@ def cmd_preview(args):
     print(f"DRAFT_ID: {draft['draft_id']}")
     print(f"IMAGE_URL: {draft['image_url']}")
     print(f"CAPTION: {draft['caption']}")
+    # S2.3 hardening: show A/B variants, compliance, alt-text, readability
+    if draft.get("caption_variants") and len(draft["caption_variants"]) > 1:
+        print(f"VARIANT_B: {draft['caption_variants'][1][:120]}")
+    print(f"ALT_TEXT: {draft.get('alt_text','')[:120]}")
+    print(f"COMPLIANCE: {draft.get('brand_compliance_score',1.0):.0%}  Issues: {draft.get('compliance_issues',[])}")
+    print(f"READABILITY: {draft.get('readability','')} ({draft.get('avg_words_per_sentence','')} w/s)")
+    print(f"PLATFORMS: {draft.get('platforms')}  Brand: {draft.get('brand_name')}")
 
 def cmd_approve(args):
     draft_service = DraftService()
@@ -235,9 +242,21 @@ def cmd_trends(args):
         print(f"  * {t.get('topic')} ({t.get('source')}) - Velocity: {t.get('trend_velocity')}")
 
 def cmd_ideas(args):
-    ra = ResearchAgent()
+    # S1.4 cache: once per ISO week, --force regenerates
+    from services.scheduler_service import SchedulerService
+    force = getattr(args, 'force', False)
+    svc = SchedulerService()
+    res = svc.generate_weekly_brief_if_needed(force=force)
+    if res.get("cached"):
+        print(f"Weekly AI Content Strategy Brief (CACHED — Week {res.get('week_number')}):\n")
+        print(res.get("brief") or "Cached ideas already exist for this week. Use --force to regenerate.")
+        if res.get("ideas"):
+            print("\nCached Ideas:")
+            for i, idea in enumerate(res["ideas"], 1):
+                print(f"  {i}. {idea.get('idea_text','')} ({idea.get('target_platform','')})")
+        return
     print("Weekly AI Content Strategy Brief:\n")
-    print(ra.generate_weekly_brief())
+    print(res.get("brief"))
 
 def cmd_repurpose(args):
     rs = RepurposeService()
@@ -292,6 +311,61 @@ def cmd_db(args):
         for r in rows:
             print(f"  * {r['provider']}: {r['calls']} calls, {r['successful']} successful, avg {int(r.get('avg_latency') or 0)}ms")
 
+def cmd_improve(args):
+    from services.self_improvement_service import SelfImprovementService
+    svc = SelfImprovementService()
+    sub = args.subaction
+    if sub == "propose":
+        dry = not getattr(args, 'apply', False)
+        res = svc.propose(brand_id=1, dry_run=dry)
+        if not res.get("proposed"):
+            print(f"ℹ️ {res.get('reason')}")
+            if res.get("existing"):
+                print(json.dumps(res["existing"], indent=2))
+            return
+        p = res["proposal"]
+        print(f"🧬 Proposal #{p['id']} [{p['experiment_type']}] {p['changed_field']}: {p['old_value']} → {p['new_value']}")
+        print(f"Hypothesis: {p['hypothesis']}")
+        print(f"Predicted lift: {p['predicted_lift']:.0%} | Status: {p['status']} | Dry-run: {p['dry_run']}")
+        print(f"\nApprove: python cli.py improve approve {p['id']}  | Reject: python cli.py improve reject {p['id']}")
+    elif sub == "list":
+        rows = svc.list_pending()
+        if not rows:
+            print("No pending proposals. Use: python cli.py improve propose")
+            return
+        print(f"{len(rows)} pending proposal(s):")
+        for r in rows:
+            print(f"  #{r['id']} [{r['experiment_type']}] {r['changed_field']}: {r['old_value'][:30]} → {r['new_value'][:30]} | {r['status']} lift {r.get('predicted_lift',0):.0%}")
+    elif sub == "approve":
+        pid = int(args.proposal_id)
+        res = svc.approve(pid)
+        if res.get("success"):
+            print(f"✅ Applied #{pid}: {res['proposal']['changed_field']} updated. Measure in 7d via: python cli.py improve measure {pid}")
+        else:
+            print(f"❌ {res.get('error')}")
+    elif sub == "reject":
+        pid = int(args.proposal_id)
+        res = svc.reject(pid, reason="cli reject")
+        print(f"{'✅ Rejected' if res.get('success') else '❌ ' + res.get('error')} #{pid}")
+    elif sub == "measure":
+        pid = int(args.proposal_id)
+        res = svc.measure(pid)
+        if res.get("success"):
+            print(f"📈 Proposal #{pid}: before {res['before']:.2f} → after {res['after']:.2f} lift {res['lift']:.0%} action {res['action']}")
+            print(json.dumps(res["proposal"], indent=2))
+        else:
+            print(f"❌ {res.get('error')}")
+    elif sub == "history":
+        rows = svc.get_history(limit=10)
+        if not rows:
+            print("No history yet.")
+            return
+        print(f"Last {len(rows)} improvements:")
+        for r in rows:
+            print(f"  #{r['id']} [{r['week_number']}] {r['changed_field']} {r['status']} pred {r.get('predicted_lift',0):.0%} before {r.get('metric_before',0):.2f} after {r.get('metric_after',0) or 0:.2f} | {r['hypothesis'][:60]}")
+    else:
+        print("Usage: improve [propose|list|approve <id>|reject <id>|measure <id>|history]")
+
 def main():
     parser = argparse.ArgumentParser(description="ClawAgent v3.0 CLI")
     subparsers = parser.add_subparsers(dest="command")
@@ -345,8 +419,11 @@ def main():
     p_comp.add_argument("--brief", action="store_true")
 
     # trends & ideas
-    subparsers.add_parser("trends")
-    subparsers.add_parser("ideas")
+    p_trends = subparsers.add_parser("trends")
+    p_trends.add_argument("--sync", action="store_true", help="Force sync competitors before fetching trends")
+    p_ideas = subparsers.add_parser("ideas")
+    p_ideas.add_argument("--force", action="store_true", help="Force regenerate even if cached for this week")
+    p_ideas.add_argument("--cron", action="store_true", help="Cron mode: generate only if needed for this week")
 
     # repurpose
     p_rep = subparsers.add_parser("repurpose")
@@ -357,6 +434,12 @@ def main():
 
     p_db = subparsers.add_parser("db")
     p_db.add_argument("subaction", choices=["storage", "history", "drafts", "ai_stats"])
+
+    # self-improving loop
+    p_imp = subparsers.add_parser("improve")
+    p_imp.add_argument("subaction", choices=["propose","list","approve","reject","measure","history"], nargs="?", default="propose")
+    p_imp.add_argument("proposal_id", nargs="?", default=None)
+    p_imp.add_argument("--apply", action="store_true", help="Propose and auto-apply (skip dry-run, for testing)")
 
     args = parser.parse_args()
 
@@ -390,6 +473,8 @@ def main():
         cmd_ai_status(args)
     elif args.command == "db":
         cmd_db(args)
+    elif args.command == "improve":
+        cmd_improve(args)
     else:
         parser.print_help()
 

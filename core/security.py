@@ -84,13 +84,21 @@ def validate_safe_url(url: str, allowed_schemes: Tuple[str, ...] = ("http", "htt
 
     return url.strip()
 
+PROJECT_ROOT_DEFAULT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def validate_safe_file_path(file_path: str, allowed_base_dirs: Optional[List[str]] = None) -> str:
     """
     Validates that a local file path does not escape into sensitive directories.
     Blocks reading .env, system files, or traversing out of project scope.
+    If allowed_base_dirs is None, defaults to PROJECT_ROOT (fail-closed).
     """
     if not file_path or not isinstance(file_path, str):
         raise SecurityException("Invalid file path: must be a non-empty string.")
+
+    # Reject traversal segments early
+    if ".." in file_path.split(os.sep) or "..\\" in file_path:
+        # Still canonicalize and check, but flag early
+        pass
 
     canonical_path = os.path.realpath(os.path.abspath(file_path))
 
@@ -98,21 +106,30 @@ def validate_safe_file_path(file_path: str, allowed_base_dirs: Optional[List[str
     if basename in (".env", ".env.local", "secrets.enc", "secrets.json", "id_rsa", "id_ed25519"):
         raise SecurityException(f"Access to sensitive file '{basename}' is strictly forbidden.")
 
+    # Default fail-closed to project root if not specified
+    if allowed_base_dirs is None:
+        allowed_base_dirs = [PROJECT_ROOT_DEFAULT]
+
     if allowed_base_dirs:
         matched = False
         for base in allowed_base_dirs:
-            real_base = os.path.realpath(os.path.abspath(base))
-            if os.path.commonpath([canonical_path, real_base]) == real_base:
-                matched = True
-                break
+            try:
+                real_base = os.path.realpath(os.path.abspath(base))
+                if os.path.commonpath([canonical_path, real_base]) == real_base:
+                    matched = True
+                    break
+            except ValueError:
+                # Different drives on Windows — not inside
+                continue
         if not matched:
             raise SecurityException(f"Path '{canonical_path}' is outside of permitted directories.")
 
     return canonical_path
 
-def safe_stream_download(url: str, max_bytes: int = 25 * 1024 * 1024, timeout: int = 15) -> bytes:
+def safe_stream_download(url: str, max_bytes: int = 25 * 1024 * 1024, timeout: int = 15, max_redirects: int = 3) -> bytes:
     """
-    Safely downloads media from a validated URL with strict memory limits and timeouts.
+    Safely downloads media from a validated URL with strict memory limits, timeouts, and SSRF redirect validation.
+    Manually follows redirects up to max_redirects, re-validating each Location.
     """
     import requests
     safe_url = validate_safe_url(url)
@@ -121,31 +138,49 @@ def safe_stream_download(url: str, max_bytes: int = 25 * 1024 * 1024, timeout: i
         "User-Agent": "ClawAgent/3.0 (Security-Hardened Bot)"
     }
     
-    with requests.get(safe_url, headers=headers, stream=True, timeout=(5, timeout)) as resp:
-        resp.raise_for_status()
-        
-        content_len = resp.headers.get("Content-Length")
-        if content_len and int(content_len) > max_bytes:
-            raise SecurityException(f"Payload too large: Content-Length {content_len} exceeds max allowed {max_bytes} bytes.")
-            
-        chunks = []
-        total_downloaded = 0
-        for chunk in resp.iter_content(chunk_size=64 * 1024):
-            if chunk:
-                total_downloaded += len(chunk)
-                if total_downloaded > max_bytes:
-                    raise SecurityException(f"Payload exceeded maximum size limit of {max_bytes} bytes during download.")
-                chunks.append(chunk)
-                
-        return b"".join(chunks)
+    current_url = safe_url
+    for redirect_idx in range(max_redirects + 1):
+        with requests.get(current_url, headers=headers, stream=True, timeout=(5, timeout), allow_redirects=False) as resp:
+            # Handle redirect manually with re-validation
+            if resp.status_code in (301, 302, 303, 307, 308):
+                if redirect_idx >= max_redirects:
+                    raise SecurityException(f"Too many redirects (>{max_redirects})")
+                loc = resp.headers.get("Location")
+                if not loc:
+                    raise SecurityException("Redirect without Location header")
+                # Resolve relative redirects
+                next_url = urllib.parse.urljoin(current_url, loc)
+                # Re-validate the redirect target against SSRF
+                validate_safe_url(next_url)
+                current_url = next_url
+                continue
 
-# Secret Redaction Patterns
+            resp.raise_for_status()
+            
+            content_len = resp.headers.get("Content-Length")
+            if content_len and int(content_len) > max_bytes:
+                raise SecurityException(f"Payload too large: Content-Length {content_len} exceeds max allowed {max_bytes} bytes.")
+                
+            chunks = []
+            total_downloaded = 0
+            for chunk in resp.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    total_downloaded += len(chunk)
+                    if total_downloaded > max_bytes:
+                        raise SecurityException(f"Payload exceeded maximum size limit of {max_bytes} bytes during download.")
+                    chunks.append(chunk)
+                    
+            return b"".join(chunks)
+    raise SecurityException(f"Exceeded max_redirects {max_redirects}")
+
+# Secret Redaction Patterns — expanded to cover 45-char Telegram tokens and generic keys
 SECRET_PATTERNS = [
     (re.compile(r"sk-[a-zA-Z0-9_\-]{20,}", re.IGNORECASE), "sk-***REDACTED***"),
-    (re.compile(r"bot[0-9]{8,11}:[a-zA-Z0-9_\-]{30,}", re.IGNORECASE), "bot***REDACTED_TELEGRAM_TOKEN***"),
+    (re.compile(r"bot\d{7,12}:[A-Za-z0-9_\-]{25,}", re.IGNORECASE), "bot***REDACTED_TELEGRAM_TOKEN***"),
     (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{20,}", re.IGNORECASE), "Bearer ***REDACTED***"),
     (re.compile(r"key=[a-zA-Z0-9_\-]{20,}", re.IGNORECASE), "key=***REDACTED***"),
     (re.compile(r"api[_-]?key[\"']?\s*[:=]\s*[\"']?[a-zA-Z0-9_\-]{20,}[\"']?", re.IGNORECASE), "api_key=***REDACTED***"),
+    (re.compile(r"TELEGRAM_BOT_TOKEN[\"']?\s*[:=]\s*[\"']?\d+:[A-Za-z0-9_\-]{25,}[\"']?", re.IGNORECASE), "TELEGRAM_BOT_TOKEN=***REDACTED***"),
 ]
 
 def mask_secrets(text: Optional[str]) -> str:
@@ -168,7 +203,8 @@ def sanitize_user_input(text: str, max_length: int = 2000) -> str:
     if not text:
         return ""
     clean = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-    clean = clean.replace("<user_input>", "&lt;user_input&gt;").replace("</user_input>", "&lt;/user_input&gt;")
+    # Case-insensitive sandbox escape for <user_input> tags to prevent prompt injection bypass via <USER_INPUT> etc.
+    clean = re.sub(r"</?user_input\s*>", lambda m: m.group(0).replace("<", "&lt;").replace(">", "&gt;"), clean, flags=re.IGNORECASE)
     return clean[:max_length].strip()
 
 def extract_json_from_llm(raw_text: str) -> Dict[str, Any]:

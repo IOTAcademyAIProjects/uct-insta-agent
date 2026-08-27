@@ -53,7 +53,21 @@ class CircuitBreaker:
 
     @property
     def is_open(self) -> bool:
-        return not self.allow_request()
+        """Side-effect-free check — does NOT transition state or consume probe slot."""
+        with self._lock:
+            if self.state == CircuitState.CLOSED:
+                return False
+            if self.state == CircuitState.OPEN:
+                # Still open if recovery timeout not elapsed
+                return (time.time() - self.last_failure_time) < self.recovery_timeout_seconds
+            if self.state == CircuitState.HALF_OPEN:
+                # HALF_OPEN is not OPEN for routing check; caller should use allow_request() to claim probe
+                return False
+            return False
+
+    def try_probe(self) -> bool:
+        """Explicitly attempt to claim the HALF_OPEN probe slot."""
+        return self.allow_request()
 
     def record_success(self):
         """Records a successful API call, closing the circuit if it was HALF_OPEN."""

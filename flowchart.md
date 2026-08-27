@@ -1,10 +1,10 @@
-# ClawAgent v3.0 — Comprehensive Architecture & Technical Flowchart Handover
+# ClawAgent v3.1 — Comprehensive Architecture & Technical Flowchart Handover — Self-Improving Loop
 
 **Project Name:** ClawAgent (Social Media AI Operating System)  
 **Document Purpose:** Engineering Team & Team Leader Handover Document  
-**Version:** 3.0.0-Production  
+**Version:** 3.1.0-Production — Self-Improving Loop  
 **Author:** Swarit Sharma / Uniconverge Technologies Pvt. Ltd. (UCT)  
-**Date:** 2026-08-27  
+**Date:** 2026-08-28  
 
 ---
 
@@ -20,8 +20,9 @@
    - 3.6 [Scheduled Post Queue & Worker Lifecycle](#36-scheduled-post-queue--worker-lifecycle)
    - 3.7 [Competitor & Trend Intelligence Pipeline](#37-competitor--trend-intelligence-pipeline)
    - 3.8 [Security & Defense Perimeter](#38-security--defense-perimeter)
+   - 3.9 [Self-Improving Loop (Observe→Hypothesize→Propose→Approve→Measure)](#39-self-improving-loop)
 4. [Complete Codebase Map (What's Happening Where)](#4-complete-codebase-map-whats-happening-where)
-5. [Database Architecture & Entity Relationship Diagram (ERD)](#5-database-architecture--entity-relationship-diagram-erd)
+5. [Database Architecture & Entity Relationship Diagram (ERD) — 14 Tables](#5-database-architecture--entity-relationship-diagram-erd)
 6. [Configuration Reference (`config/models.yaml` & `config/platforms.yaml`)](#6-configuration-reference)
 7. [Developer Onboarding & Maintenance Checklist](#7-developer-onboarding--maintenance-checklist)
 
@@ -29,11 +30,12 @@
 
 ## 1. Executive Summary & System Vision
 
-ClawAgent v3.0 is an autonomous, multi-agent social media operating system engineered to run **100% on free-tier AI APIs ($0/month)** while delivering enterprise-grade functionality:
+ClawAgent v3.1 is an autonomous, multi-agent social media operating system engineered to run **100% on free-tier AI APIs ($0/month)** while delivering enterprise-grade functionality:
 - **Persistent Brand Memory**: Learns voice DNA (average sentence length, emoji frequency, hashtag patterns, and hooks) from past posts and enforces brand compliance.
 - **Task-Based Model Routing with Hot-Reload**: Declaratively routes tasks to the best, fastest, and cheapest provider (Cerebras, NVIDIA NIM, Gemini Flash/Pro, Mistral, Pollinations, OpenRouter) with automatic circuit breaker isolation and zero-downtime YAML updates.
 - **Multi-Platform Publishing**: Unified adapter layer supporting Instagram (Feed, Stories, Reels, Carousels), LinkedIn, X (Twitter), and YouTube Shorts.
 - **Hardened Security Perimeter**: Built-in SSRF protection, path traversal defenses, secret redaction, and prompt sandboxing.
+- **Self-Improving Loop (v3.1)**: Weekly Observe→Hypothesize→Propose (dry-run, 1/week cap)→Human Approve→Measure (7d)→Keep/Revert. L1 safe fields (`hashtag_count_range`, `sample_hooks`) auto-proposable; L3 gated (`tone_of_voice`) never auto. All proposals audited in `improvement_log` for leader review. Uses `$0` `reasoning` chain or heuristic fallback.
 
 ---
 
@@ -55,12 +57,15 @@ flowchart TD
     Orch -->|COMPETITORS / TRENDS| Research["agents/research_agent.py"]
     Orch -->|SCHEDULE| SchedAgent["agents/scheduler_agent.py"]
     Orch -->|REPURPOSE| Repurpose["services/repurpose_service.py"]
+    Orch -->|IMPROVE| SelfImprove["services/self_improvement_service.py\n(Observe→Hypothesize→Propose)"]
+    Orch -->|IMPROVE LIST| PerfMem["services/performance_memory.py\n(A/B Winner Learning)"]
     
     Creator --> Router["core/model_router.py\n(Hot-Swappable Model Router)"]
     Designer --> Router
     Analyst --> Router
     Research --> Router
     Repurpose --> Router
+    SelfImprove --> Router
     
     Router --> CB{"Circuit Breakers\n(CLOSED / OPEN / HALF_OPEN)"}
     CB -->|Pass| ProvPool["AI Provider Pool\n(NVIDIA, Cerebras, Gemini, Mistral, Pollinations)"]
@@ -79,9 +84,16 @@ flowchart TD
     Adapters --> TwitterAPI["Twitter API v2"]
     Adapters --> YouTubeAPI["YouTube Data API v3"]
     
-    DraftSvc --> DB[("SQLite Database\n(13 Tables, WAL Mode)")]
+    SelfImprove --> BrandSvc
+    SelfImprove --> DB
+    PerfMem --> BrandSvc
+    PerfMem --> DB
+    
+    DraftSvc --> DB[("SQLite Database\n(14 Tables, WAL Mode)\n+ improvement_log")]
     BrandSvc --> DB
     PubAgent --> DB
+    Research --> DB
+    Analyst --> DB
 ```
 
 ---
@@ -311,6 +323,40 @@ flowchart TD
 
 ---
 
+### 3.9 Self-Improving Loop (Observe→Hypothesize→Propose→Approve→Measure)
+
+Weekly closed-loop that learns from outcomes without drifting brand voice. All changes dry-run, 1/week cap, human gate, auto-revert.
+
+```mermaid
+flowchart TD
+    Cron["Cron Mon 10:00 POST_TIMEZONE\ncelery beat or scheduler.sh"] --> Observe["services/self_improvement_service.py:observe()\n14d posts, trends, ai_health, hashtag/wps"]
+    Observe --> Hypothesize{"Hypothesize\nLLM reasoning OR heuristic fallback"}
+    Hypothesize -->|L1 safe| Propose["PROPOSED improvement_log\n dry_run=1, week cap check"]
+    Hypothesize -->|L3 gated tone| RejectAuto["Reject L3 — manual review only"]
+    Propose --> Notify["Telegram Card 🧬\n[✅ Apply] [❌ Reject]\n+ CLI/API"]
+    Notify --> Decision{Human Decision}
+    Decision -->|Approve| Apply["BrandService.update_profile()\nhashtag_count_range / sample_hooks"]
+    Decision -->|Reject| Rejected["REJECTED"]
+    Apply --> Applied["APPLIED + applied_at"]
+    Applied --> Wait["Wait 7 days"]
+    Wait --> Measure["measure(): 7d avg engagement\nmetric_before vs metric_after"]
+    Measure -->|lift > -5%| Keep["MEASURED / KEEP"]
+    Measure -->|lift < -5%| Revert["REVERTED auto\nBrandService revert old_value"]
+    Keep --> Log["improvement_log audit"]
+    Revert --> Log
+    Rejected --> Log
+```
+
+**Key invariants:**
+- `improvement_log` `db/setup_db.py:220` single `PROPOSED/APPLIED` per `brand_id/week_number` — second `propose()` blocked.
+- L1 fields `hashtag_count_range, sample_hooks, avg_sentence_length, emoji_frequency` `services/self_improvement_service.py:12` auto-proposable; L3 `tone_of_voice, prohibited_words` `services/self_improvement_service.py:13` rejected.
+- $0: `router.generate_text(reasoning)` `core/model_router.py:127` via `mistral→gemini_pro` `config/models.yaml:152` or heuristic `_heuristic_proposal()` `services/self_improvement_service.py:90`.
+- Telegram HITL `telegram/bot.py:98 handle_improve_command()` + `telegram/callbacks.py:120 improve_apply` + `telegram/keyboards.py:42 build_self_improve_keyboard`.
+- API `api.py:44 POST /api/v3/self-improve/{id}/approve` Bearer gated `core/security.py:151`.
+- CLI `cli.py:314 improve propose/list/approve/measure/history`.
+
+---
+
 ## 4. Complete Codebase Map (What's Happening Where)
 
 Here is the exact map of every folder, file, class, and method in the repository:
@@ -361,19 +407,29 @@ UCT_ag/
 │   ├── __init__.py                  # Package marker
 │   ├── brand_service.py             # Voice DNA extraction, profile CRUD, compliance check
 │   ├── draft_service.py             # Draft staging, A/B variant generation, approval
-│   ├── media_host.py                # ImgBB upload, media type detection, streaming download
-│   ├── scheduler_service.py         # Scheduled post queue management & execution
+│   ├── media_host.py                # ImgBB/Cloudinary/S3 upload, media type detection, SSRF guard
+│   ├── scheduler_service.py         # Scheduled queue + weekly brief cache + self-improve triggers
 │   ├── engagement_service.py        # DMs, comments, Telegram notifications, sentiment analysis
-│   ├── trend_service.py             # Google Trends & niche signal monitoring
-│   ├── competitor_service.py        # Competitor handle tracking & post logging
-│   ├── repurpose_service.py         # Content repurposing (articles -> slides + tweets + video)
-│   └── db_service.py                # Database inspection, storage stats, and maintenance
+│   ├── trend_service.py             # Google Trends + X + IG hashtag, relevance scoring, TTL
+│   ├── competitor_service.py        # Competitor handle tracking, sync, gap analysis (7d)
+│   ├── repurpose_service.py         # Content repurposing v2: brand + platform limits + campaign persist
+│   ├── db_service.py                # Database inspection, storage stats, and maintenance
+│   ├── performance_memory.py        # A/B winner learning → sample_hooks bias
+│   └── self_improvement_service.py  # Self-Improving Loop L1 (Observe→Hypothesize→Propose→Measure)
 │
 ├── db/
-│   ├── setup_db.py                  # SQLite DDL (13 tables) + auto column migration
+│   ├── setup_db.py                  # SQLite DDL (14 tables, incl. improvement_log) + auto column migration
 │   ├── migrate.py                   # Migration utility for historical database files
-│   ├── repository.py                # Central data repository with WAL mode & query whitelist
-│   └── uct_agent.sqlite             # SQLite database file
+│   ├── repository.py                # Central repository WAL + Postgres optional + whitelist
+│   └── uct_agent.sqlite             # SQLite database file (default solo, $0)
+│
+├── telegram/                        # Telegram HITL (v3.1)
+│   ├── bot.py                       # Polling/Webhook, /improve, /brand, photo→draft
+│   ├── keyboards.py                 # Draft 4-row + brand + analytics + self-improve cards
+│   └── callbacks.py                 # approve/use_a/discard/brand_switch/improve_apply routing
+│
+├── .openclaw/skills/                # 7 OpenClaw skills (post, carousel, drafts, generate, analytics, dm, scheduler)
+│
 │
 ├── prompts/
 │   ├── __init__.py                  # Package marker
@@ -400,22 +456,27 @@ UCT_ag/
 │   ├── test_security.py             # 14 automated security unit tests (SSRF, Traversal, Redaction)
 │   └── test_edge_cases.py           # 10 automated edge-case unit tests (Circuit Breaker, Concurrency)
 │
-├── cli.py                           # Unified CLI entrypoint
+├── cli.py                           # Unified CLI `post, carousel, preview, improve propose/list/approve/measure`
+├── api.py                           # FastAPI: /health, /api/v3/models/status, /self-improve/*, /intelligence/*
+├── celery_app.py                    # Celery beat: due-posts 60s, weekly brief Mon 9am, self-improve propose/measure
 ├── setup.sh                         # Bootstrap & installation script
-├── requirements.txt                 # Pinned Python dependencies
-├── .env.example                     # Environment configuration template
+├── requirements.txt                 # Pinned deps + optional psycopg2, redis, celery, cloudinary, python-telegram-bot
+├── Dockerfile                       # Python 3.11 slim + healthcheck → uvicorn api:app
+├── docker-compose.yml               # Team: agent+worker+beat+redis+postgres (solo: SQLite default)
+├── .env.example                     # Templates: MEDIA_PROVIDER, DATABASE_URL, REDIS_URL, TELEGRAM_ALLOW_FROM, API_BEARER_TOKEN
 ├── .gitignore                       # Git ignore rules (DB, secrets, logs protected)
-├── PRD.md                           # Product Requirements Document v3.0
-├── SPEC_SHEET.md                    # Technical Specification Sheet v3.0
-├── SKILLS.md                        # OpenClaw skills reference guide
+├── PRD.md                           # Product Requirements Document v3.1 — Self-Improving Loop
+├── SPEC_SHEET.md                    # Technical Specification Sheet v3.1 — 14 tables, Self-Improving specs
+├── SKILLS.md                        # OpenClaw skills reference guide (7 skills)
+├── Planmuse.md                      # SDLC execution plan (S0-S4 + verification gates)
 └── README.md                        # Project overview and quickstart guide
 ```
 
 ---
 
-## 5. Database Architecture & Entity Relationship Diagram (ERD)
+## 5. Database Architecture & Entity Relationship Diagram (ERD) — 14 Tables (v3.1)
 
-The database consists of **13 relational tables** with Write-Ahead Logging (WAL) enabled:
+The database consists of **14 relational tables** (13 + `improvement_log` self-improving audit) with Write-Ahead Logging (WAL) enabled:
 
 ```mermaid
 erDiagram
@@ -427,6 +488,7 @@ erDiagram
     BRANDS ||--o{ SCHEDULED_POSTS : schedules
     BRANDS ||--o{ SEEN_DMS : receives
     BRANDS ||--o{ AI_CALLS : logs
+    BRANDS ||--o{ IMPROVEMENT_LOG : improves (v3.1)
     
     COMPETITORS ||--o{ COMPETITOR_POSTS : generates
     TREND_INSIGHTS ||--o{ CONTENT_IDEAS : inspires
@@ -512,6 +574,21 @@ erDiagram
         int latency_ms
         string error_message
     }
+
+    IMPROVEMENT_LOG {
+        int id PK
+        int brand_id FK
+        int week_number
+        string experiment_type
+        string changed_field
+        string old_value
+        string new_value
+        float metric_before
+        float metric_after
+        float predicted_lift
+        string status
+        boolean dry_run
+    }
 ```
 
 ---
@@ -567,6 +644,31 @@ python tests/test_security.py
 
 # Run full edge-case & concurrency test suite (10 tests)
 python tests/test_edge_cases.py
+
+# Verify self-improving loop (dry-run → approve → measure)
+python cli.py improve propose
+python cli.py improve list
+python cli.py improve approve 1
+python cli.py improve measure 1
+python cli.py improve history
+```
+
+### Verifying the Loops (Leader Gates)
+```bash
+# G-S0 foundation
+python db/setup_db.py && python cli.py ai-status && python cli.py db storage
+# G-S1 intelligence
+python cli.py trends && python cli.py competitors --brief && python cli.py ideas --force
+# G-S2 HILT Telegram
+python cli.py preview "https://picsum.photos/200" --tone casual
+# G-S3 advanced
+python cli.py repurpose "Long article text for repurposing test..."
+python -c "from services.performance_memory import PerformanceMemory; print(PerformanceMemory().update_brand_hooks_from_winners())"
+# G-S4 scale
+python -c "from fastapi.testclient import TestClient; import api; c=TestClient(api.app); print(c.get('/api/v3/health').json())"
+# G-S5 self-improve (v3.1)
+python cli.py improve propose && python cli.py improve history
+curl http://localhost:8080/api/v3/self-improve/pending  # via FastAPI
 ```
 
 ### Extending the Codebase
@@ -581,7 +683,12 @@ python tests/test_edge_cases.py
 3. **Adding a New Prompt Skill**:
    - Create template builder in `prompts/new_skill.py` using `core.security.sanitize_user_input`.
    - Wire intent into `agents/orchestrator.py` and `cli.py`.
+4. **Adding a Self-Improvement Experiment**:
+   - Extend `ALLOWED_FIELDS` `services/self_improvement_service.py:12` (L1) — add new brand field.
+   - Implement heuristic in `_heuristic_proposal()` `services/self_improvement_service.py:90` for fallback.
+   - Add Telegram card row `telegram/keyboards.py:42` and callback `telegram/callbacks.py:120`.
+   - Register API `api.py:44` and CLI `cli.py:314` and beat `celery_app.py:31`.
 
 ---
 
-*Handover Document Completed. System is fully operational, hardened, and verified.*
+*Handover Document v3.1 Completed — Self-Improving Loop audited. System is fully operational, hardened, and verified: 14 tables WAL, 7 OpenClaw skills, 8 FastAPI endpoints + 6 self-improve endpoints, Telegram HITL for drafts + self-improve, Celery/Redis optional scale, $0 default.*
