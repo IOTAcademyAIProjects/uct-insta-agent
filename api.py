@@ -17,6 +17,7 @@ from db.repository import get_connection
 from services.scheduler_service import SchedulerService
 from services.brand_service import BrandService
 from core.security import mask_secrets
+from core.audit import audit
 
 # Structured logging setup
 logger = logging.getLogger("clawagent.api")
@@ -78,7 +79,8 @@ def models_status():
     return {"providers": status}
 
 @app.post("/api/v3/models/reload")
-def models_reload(authorized: bool = Depends(verify_bearer)):
+@limiter.limit("10/minute") if SLOWAPI_ENABLED else lambda f: f
+def models_reload(request: Request, authorized: bool = Depends(verify_bearer)):
     router = get_default_router()
     try:
         from core.config_loader import ConfigLoader
@@ -110,6 +112,7 @@ def list_brands():
     return {"brands": bs.list_all()}
 
 @app.get("/api/v3/intelligence/brief")
+@limiter.limit("20/minute") if SLOWAPI_ENABLED else lambda f: f
 def get_brief(request: Request, brand_id: Optional[int] = None, force: bool = False):
     svc = SchedulerService()
     if force:
@@ -121,6 +124,7 @@ def get_brief(request: Request, brand_id: Optional[int] = None, force: bool = Fa
     return res
 
 @app.get("/api/v3/intelligence/trends")
+@limiter.limit("30/minute") if SLOWAPI_ENABLED else lambda f: f
 def get_trends(request: Request, brand_id: Optional[int] = None):
     from services.trend_service import TrendService
     ts = TrendService()
@@ -135,10 +139,13 @@ def scheduler_due():
 
 # Self-Improving Loop API — PRD 3.13 / SPEC 9
 @app.post("/api/v3/self-improve/propose")
+@limiter.limit("5/minute") if SLOWAPI_ENABLED else lambda f: f
 def self_improve_propose(request: Request, brand_id: Optional[int] = None, dry_run: bool = True, authorized: bool = Depends(verify_bearer)):
     from services.self_improvement_service import SelfImprovementService
     svc = SelfImprovementService()
-    return svc.propose(brand_id=brand_id or 1, dry_run=dry_run)
+    res = svc.propose(brand_id=brand_id or 1, dry_run=dry_run)
+    audit("self_improve_propose", {"brand_id": brand_id, "dry_run": dry_run, "proposed": res.get("proposed", False), "proposal_id": res.get("proposal", {}).get("id")}, brand_id=brand_id)
+    return res
 
 @app.get("/api/v3/self-improve/pending")
 def self_improve_pending(brand_id: Optional[int] = None):
@@ -150,19 +157,25 @@ def self_improve_pending(brand_id: Optional[int] = None):
 def self_improve_approve(proposal_id: int, authorized: bool = Depends(verify_bearer)):
     from services.self_improvement_service import SelfImprovementService
     svc = SelfImprovementService()
-    return svc.approve(proposal_id)
+    res = svc.approve(proposal_id)
+    audit("self_improve_approve", {"proposal_id": proposal_id, "success": res.get("success", False)}, brand_id=res.get("proposal", {}).get("brand_id"))
+    return res
 
 @app.post("/api/v3/self-improve/{proposal_id}/reject")
 def self_improve_reject(proposal_id: int, authorized: bool = Depends(verify_bearer)):
     from services.self_improvement_service import SelfImprovementService
     svc = SelfImprovementService()
-    return svc.reject(proposal_id)
+    res = svc.reject(proposal_id)
+    audit("self_improve_reject", {"proposal_id": proposal_id, "success": res.get("success", False)})
+    return res
 
 @app.post("/api/v3/self-improve/{proposal_id}/measure")
 def self_improve_measure(proposal_id: int, authorized: bool = Depends(verify_bearer)):
     from services.self_improvement_service import SelfImprovementService
     svc = SelfImprovementService()
-    return svc.measure(proposal_id)
+    res = svc.measure(proposal_id)
+    audit("self_improve_measure", {"proposal_id": proposal_id, "success": res.get("success", False), "action": res.get("action")}, brand_id=res.get("proposal", {}).get("brand_id"))
+    return res
 
 @app.get("/api/v3/self-improve/history")
 def self_improve_history(brand_id: Optional[int] = None, limit: int = 20):
