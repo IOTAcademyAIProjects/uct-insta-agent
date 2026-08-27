@@ -188,6 +188,13 @@ def create_application():
             tone = "casual"
             if update.message.caption:
                 tone = update.message.caption.split()[0]
+            # Phase 4: async DNS validation to avoid blocking event loop (core/security.py:async_validate_safe_url)
+            try:
+                from core.security import async_validate_safe_url
+                await async_validate_safe_url(image_url)
+            except Exception as e:
+                await update.message.reply_text(f"⛔ URL blocked: {e}")
+                return
             res = handle_photo_message(image_url, tone=tone, user_id=str(update.effective_user.id))
             markup = to_telegram_markup(res["keyboard"]) if res.get("keyboard") else None
             await update.message.reply_text(res["text"], reply_markup=markup)
